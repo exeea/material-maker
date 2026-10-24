@@ -574,11 +574,12 @@ func run_edits(args : Dictionary, edits : Array):
 		graph_edit.edit_subgraph(graph)
 	var before : Dictionary = graph.serialize().duplicate(true)
 	var names : Dictionary = {}
+	var parameter_changes : Array = []
 	var results : Array = []
 	var failure : String = ""
 	for i in edits.size():
 		var edit : Dictionary = edits[i] if edits[i] is Dictionary else {}
-		var result = await apply_edit(graph_edit, edit, names)
+		var result = await apply_edit(graph_edit, edit, names, parameter_changes)
 		if result is String:
 			failure = result if edits.size() == 1 else "Edit %d (%s) failed: %s" % [ i, edit.get("op", ""), result ]
 			if i > 0:
@@ -586,14 +587,37 @@ func run_edits(args : Dictionary, edits : Array):
 			break
 		results.append(result)
 	if not results.is_empty():
-		graph_edit.undoredo_create_step("MCP edits", graph.get_hier_name(), before, graph.serialize())
+		add_undo_step(graph_edit, graph, before, parameter_changes)
 		# Comment edits do not mark the project changed by themselves
 		graph_edit.set_need_save()
 	return failure if failure != "" else { applied=results.size(), results=results }
 
+# Material Maker's undo diff replaces a node whose parameters changed, which drops its connections. So
+# parameter changes are undone like the editor does it (setparams), and the diff only sees the rest.
+func add_undo_step(graph_edit : MMGraphEdit, graph : MMGenGraph, before : Dictionary, parameter_changes : Array) -> void:
+	var undo_parameters : Array = []
+	var redo_parameters : Array = []
+	for change in parameter_changes:
+		var previous : Array = before.nodes.filter(func(n): return n.name == change.node)
+		# A node these edits added is added back with its parameters
+		if previous.is_empty():
+			continue
+		if not previous[0].has("parameters"):
+			previous[0].parameters = {}
+		previous[0].parameters.merge(change.new, true)
+		var path : String = change.node if graph.get_hier_name() == "" else graph.get_hier_name()+"/"+change.node
+		undo_parameters.push_front({ type="setparams", node=path, params=change.old })
+		redo_parameters.append({ type="setparams", node=path, params=change.new })
+	var actions : Dictionary = graph_edit.undoredo_step_actions(graph.get_hier_name(), before, graph.serialize())
+	var undo_actions : Array = actions.get("undo_actions", []) + undo_parameters
+	var redo_actions : Array = redo_parameters + actions.get("redo_actions", [])
+	if not undo_actions.is_empty():
+		graph_edit.undoredo.add("MCP edits", undo_actions, redo_actions)
+
 # One edit, without an undo step of its own. names maps the names add edits asked for to the names
-# Material Maker gave them, so the edits that follow can use the names they asked for.
-func apply_edit(graph_edit : MMGraphEdit, edit : Dictionary, names : Dictionary):
+# Material Maker gave them, so the edits that follow can use the names they asked for. Set edits add
+# { node, old, new } to parameter_changes.
+func apply_edit(graph_edit : MMGraphEdit, edit : Dictionary, names : Dictionary, parameter_changes : Array):
 	var graph : MMGenGraph = graph_edit.generator
 	var node : String = names.get(str(edit.get("node", "")), str(edit.get("node", "")))
 	var from : String = names.get(str(edit.get("from", "")), str(edit.get("from", "")))
@@ -663,9 +687,13 @@ func apply_edit(graph_edit : MMGraphEdit, edit : Dictionary, names : Dictionary)
 						parameter_names.append(d.name)
 					return "%s has no parameter '%s' (it has: %s)" % [ node, p, ", ".join(parameter_names) ]
 			var result : Dictionary = { node=node, parameters={} }
+			var old : Dictionary = {}
 			for p in parameters.keys():
+				old[p] = MMType.serialize_value(generator.get_parameter(p))
 				generator.set_parameter(p, MMType.deserialize_value(parameters[p]))
 				result.parameters[p] = MMType.serialize_value(generator.get_parameter(p))
+			if not parameters.is_empty():
+				parameter_changes.append({ node=node, old=old, new=result.parameters })
 			for key in comment.keys():
 				generator.set(key, comment[key])
 				result[key] = comment[key]
