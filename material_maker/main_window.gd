@@ -24,6 +24,9 @@ var preview_tesselation_detail : int = 256
 @onready var node_library_manager = $NodeLibraryManager
 @onready var brush_library_manager = $BrushLibraryManager
 
+# Set when _ready (which can wait for dialogs) is done, e.g. for the MCP server
+var startup_finished : bool = false
+
 
 @onready var projects_panel = $VBoxContainer/Layout/FlexibleLayout/Main
 
@@ -257,6 +260,7 @@ func _ready() -> void:
 
 	size = get_viewport().size/get_viewport().content_scale_factor
 	position = Vector2i(0, 0)
+	startup_finished = true
 
 
 var menu_update_requested : bool = false
@@ -1285,13 +1289,9 @@ func about() -> void:
 	about_box.popup_centered()
 
 func show_example_projects() -> void:
-	var base_dir : String = MMPaths.get_resource_dir().replace("\\", "/")
-	var release_examples_path : String = base_dir.path_join("examples")
-	var devel_examples_path : String = ProjectSettings.globalize_path("res://material_maker/examples")
-	for p in [ release_examples_path, devel_examples_path ]:
-		if DirAccess.dir_exists_absolute(p):
-			OS.shell_open(p)
-			return
+	var examples_path : String = MMPaths.get_examples_dir()
+	if DirAccess.dir_exists_absolute(examples_path):
+		OS.shell_open(examples_path)
 
 # Preview
 

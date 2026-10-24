@@ -7,6 +7,27 @@ var predefined_functions : Dictionary = {}
 
 var external_export_targets : Dictionary = {}
 
+# Node types implemented in code rather than in .mmg files
+var builtin_types : Dictionary = {
+	material_export = MMGenMaterial,
+	autoexport = MMGenAutoExport,
+	buffer = MMGenBuffer,
+	image = MMGenImage,
+	text = MMGenText,
+	iterate_buffer = MMGenIterateBuffer,
+	meshmap = MMGenMeshMap,
+	sdf = MMGenSDF,
+	ios = MMGenIOs,
+	switch = MMGenSwitch,
+	export = MMGenExport,
+	comment = MMGenComment,
+	webcam = MMGenWebcam,
+	debug = MMGenDebug,
+	reroute = MMGenReroute,
+	comment_line = MMGenCommentLine,
+	portal = MMGenPortal,
+}
+
 var current_project_path : String = ""
 
 
@@ -261,25 +282,6 @@ func create_gen(data : Dictionary, fix : bool = true) -> MMGenBase:
 		{ keyword="model_data", type=MMGenShader },
 		{ keyword="widgets", type=MMGenRemote }
 	]
-	var types = {
-		material_export = MMGenMaterial,
-		autoexport = MMGenAutoExport,
-		buffer = MMGenBuffer,
-		image = MMGenImage,
-		text = MMGenText,
-		iterate_buffer = MMGenIterateBuffer,
-		meshmap = MMGenMeshMap,
-		sdf = MMGenSDF,
-		ios = MMGenIOs,
-		switch = MMGenSwitch,
-		export = MMGenExport,
-		comment = MMGenComment,
-		webcam = MMGenWebcam,
-		debug = MMGenDebug,
-		reroute = MMGenReroute,
-		comment_line = MMGenCommentLine,
-		portal = MMGenPortal,
-	}
 	var generator = null
 	for g in guess:
 		var guessed = true
@@ -293,8 +295,8 @@ func create_gen(data : Dictionary, fix : bool = true) -> MMGenBase:
 			generator = g.type.new()
 			break
 	if generator == null and data.has("type"):
-		if types.has(data.type):
-			generator = types[data.type].new()
+		if builtin_types.has(data.type):
+			generator = builtin_types[data.type].new()
 		else:
 			if !predefined_generators.has(data.type) and data.type.left(8) == "website:":
 				var status = await get_node_from_website(data.type)

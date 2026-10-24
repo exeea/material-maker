@@ -1,0 +1,1715 @@
+{
+ "connections": [
+  {
+   "from": "stone_color",
+   "from_port": 1,
+   "to": "Material",
+   "to_port": 1
+  },
+  {
+   "from": "stone_layout",
+   "from_port": 0,
+   "to": "stone_color",
+   "to_port": 0
+  },
+  {
+   "from": "stone_layout",
+   "from_port": 1,
+   "to": "stone_color",
+   "to_port": 1
+  },
+  {
+   "from": "stone_layout",
+   "from_port": 2,
+   "to": "stone_color",
+   "to_port": 2
+  },
+  {
+   "from": "stone_layout",
+   "from_port": 0,
+   "to": "mortar",
+   "to_port": 0
+  },
+  {
+   "from": "stone_color",
+   "from_port": 0,
+   "to": "mortar",
+   "to_port": 1
+  },
+  {
+   "from": "stone_surface",
+   "from_port": 0,
+   "to": "mortar",
+   "to_port": 2
+  },
+  {
+   "from": "relief",
+   "from_port": 0,
+   "to": "Material",
+   "to_port": 4
+  },
+  {
+   "from": "relief",
+   "from_port": 1,
+   "to": "Material",
+   "to_port": 6
+  },
+  {
+   "from": "mortar",
+   "from_port": 1,
+   "to": "relief",
+   "to_port": 0
+  },
+  {
+   "from": "stone_surface",
+   "from_port": 0,
+   "to": "relief",
+   "to_port": 1
+  },
+  {
+   "from": "surface_grain",
+   "from_port": 0,
+   "to": "Material",
+   "to_port": 0
+  },
+  {
+   "from": "mortar",
+   "from_port": 0,
+   "to": "surface_grain",
+   "to_port": 0
+  }
+ ],
+ "label": "Graph",
+ "name": "258",
+ "node_position": {
+  "x": 0,
+  "y": 0
+ },
+ "nodes": [
+  {
+   "name": "Material",
+   "node_position": {
+    "x": 300,
+    "y": 0
+   },
+   "parameters": {
+    "albedo_color": {
+     "a": 1,
+     "b": 1,
+     "g": 1,
+     "r": 1,
+     "type": "Color"
+    },
+    "ao_light_affect": 1,
+    "depth_scale": 0.1,
+    "emission_energy": 1,
+    "metallic": 1,
+    "normal_scale": 1,
+    "resolution": 1,
+    "roughness": 1,
+    "size": 11,
+    "subsurf_scatter_strength": 0
+   },
+   "type": "material"
+  },
+  {
+   "name": "stone_layout",
+   "label": "Stone Layout",
+   "type": "graph",
+   "node_position": {
+    "x": -900,
+    "y": 0
+   },
+   "parameters": {
+    "param0": 6,
+    "param1": 0.5,
+    "param2": 0
+   },
+   "seed_int": 0,
+   "nodes": [
+    {
+     "name": "gen_inputs",
+     "type": "ios",
+     "node_position": {
+      "x": -450,
+      "y": 250
+     },
+     "parameters": {},
+     "ports": [],
+     "seed": 0,
+     "seed_locked": true
+    },
+    {
+     "name": "gen_outputs",
+     "type": "ios",
+     "node_position": {
+      "x": 1050,
+      "y": 0
+     },
+     "parameters": {},
+     "ports": [
+      {
+       "name": "joints",
+       "type": "rgba",
+       "group_size": 0
+      },
+      {
+       "name": "stone_tone",
+       "type": "f",
+       "group_size": 0
+      },
+      {
+       "name": "warp_noise",
+       "type": "f",
+       "group_size": 0
+      }
+     ],
+     "seed": 0
+    },
+    {
+     "name": "gen_parameters",
+     "type": "remote",
+     "node_position": {
+      "x": -450,
+      "y": -330
+     },
+     "parameters": {
+      "param0": 6,
+      "param1": 0.5,
+      "param2": 0
+     },
+     "seed": 0,
+     "widgets": [
+      {
+       "name": "param0",
+       "shortdesc": "Stone size",
+       "label": "",
+       "type": "linked_control",
+       "linked_widgets": [
+        {
+         "node": "PlateCells",
+         "widget": "scale_x"
+        },
+        {
+         "node": "PlateCells",
+         "widget": "scale_y"
+        }
+       ]
+      },
+      {
+       "name": "param1",
+       "shortdesc": "Joint width",
+       "label": "",
+       "type": "linked_control",
+       "linked_widgets": [
+        {
+         "node": "JointWidth",
+         "widget": "default_in1"
+        }
+       ]
+      },
+      {
+       "name": "param2",
+       "shortdesc": "Tones follow joints",
+       "label": "",
+       "type": "linked_control",
+       "linked_widgets": [
+        {
+         "node": "ToneShift",
+         "widget": "default_in2"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "name": "PlateCells",
+     "node_position": {
+      "x": -165,
+      "y": -96.75
+     },
+     "parameters": {
+      "intensity": 0.6,
+      "randomness": 1,
+      "scale_x": 6,
+      "scale_y": 6,
+      "stretch_x": 1,
+      "stretch_y": 1
+     },
+     "type": "voronoi"
+    },
+    {
+     "name": "PlateEdges",
+     "node_position": {
+      "x": 300,
+      "y": -130
+     },
+     "parameters": {
+      "gradient": {
+       "interpolation": 1,
+       "points": [
+        {
+         "a": 1,
+         "b": 0,
+         "g": 0,
+         "pos": 0,
+         "r": 0
+        },
+        {
+         "a": 1,
+         "b": 1,
+         "g": 1,
+         "pos": 0.063636,
+         "r": 1
+        }
+       ],
+       "type": "Gradient"
+      }
+     },
+     "type": "colorize"
+    },
+    {
+     "name": "JointWarpNoise",
+     "node_position": {
+      "x": -144,
+      "y": 50.25
+     },
+     "parameters": {
+      "iterations": 3,
+      "persistence": 0.5,
+      "scale_x": 4,
+      "scale_y": 4
+     },
+     "type": "perlin"
+    },
+    {
+     "name": "JointWarp",
+     "node_position": {
+      "x": 530,
+      "y": -30
+     },
+     "parameters": {
+      "amount": 0.12,
+      "eps": 0.045,
+      "epsilon": 0
+     },
+     "type": "warp"
+    },
+    {
+     "name": "JointWidth",
+     "type": "math",
+     "node_position": {
+      "x": -165,
+      "y": -330
+     },
+     "parameters": {
+      "op": 2,
+      "default_in1": 0.5,
+      "default_in2": 2
+     }
+    },
+    {
+     "name": "JointWidthFloor",
+     "type": "math",
+     "node_position": {
+      "x": 75,
+      "y": -330
+     },
+     "parameters": {
+      "op": 14,
+      "default_in2": 0.1
+     }
+    },
+    {
+     "name": "JointScale",
+     "type": "math",
+     "node_position": {
+      "x": 75,
+      "y": -130
+     },
+     "parameters": {
+      "op": 3
+     }
+    },
+    {
+     "name": "ToneWarp",
+     "type": "warp",
+     "node_position": {
+      "x": 75,
+      "y": 250
+     },
+     "parameters": {
+      "amount": 0.12,
+      "eps": 0.045,
+      "epsilon": 0
+     }
+    },
+    {
+     "name": "ToneDelta",
+     "type": "math",
+     "node_position": {
+      "x": 300,
+      "y": 250
+     },
+     "parameters": {
+      "op": 1
+     }
+    },
+    {
+     "name": "ToneShift",
+     "type": "math",
+     "node_position": {
+      "x": 530,
+      "y": 250
+     },
+     "parameters": {
+      "op": 2,
+      "default_in2": 0
+     }
+    },
+    {
+     "name": "StoneTone",
+     "type": "math",
+     "node_position": {
+      "x": 760,
+      "y": 150
+     },
+     "parameters": {
+      "op": 0
+     }
+    }
+   ],
+   "connections": [
+    {
+     "from": "JointScale",
+     "from_port": 0,
+     "to": "PlateEdges",
+     "to_port": 0
+    },
+    {
+     "from": "PlateEdges",
+     "from_port": 0,
+     "to": "JointWarp",
+     "to_port": 0
+    },
+    {
+     "from": "JointWarpNoise",
+     "from_port": 0,
+     "to": "JointWarp",
+     "to_port": 1
+    },
+    {
+     "from": "JointWidth",
+     "from_port": 0,
+     "to": "JointWidthFloor",
+     "to_port": 0
+    },
+    {
+     "from": "PlateCells",
+     "from_port": 1,
+     "to": "JointScale",
+     "to_port": 0
+    },
+    {
+     "from": "JointWidthFloor",
+     "from_port": 0,
+     "to": "JointScale",
+     "to_port": 1
+    },
+    {
+     "from": "PlateCells",
+     "from_port": 2,
+     "to": "ToneWarp",
+     "to_port": 0
+    },
+    {
+     "from": "JointWarpNoise",
+     "from_port": 0,
+     "to": "ToneWarp",
+     "to_port": 1
+    },
+    {
+     "from": "ToneWarp",
+     "from_port": 0,
+     "to": "ToneDelta",
+     "to_port": 0
+    },
+    {
+     "from": "PlateCells",
+     "from_port": 2,
+     "to": "ToneDelta",
+     "to_port": 1
+    },
+    {
+     "from": "ToneDelta",
+     "from_port": 0,
+     "to": "ToneShift",
+     "to_port": 0
+    },
+    {
+     "from": "PlateCells",
+     "from_port": 2,
+     "to": "StoneTone",
+     "to_port": 0
+    },
+    {
+     "from": "ToneShift",
+     "from_port": 0,
+     "to": "StoneTone",
+     "to_port": 1
+    },
+    {
+     "from": "JointWarp",
+     "from_port": 0,
+     "to": "gen_outputs",
+     "to_port": 0
+    },
+    {
+     "from": "StoneTone",
+     "from_port": 0,
+     "to": "gen_outputs",
+     "to_port": 1
+    },
+    {
+     "from": "JointWarpNoise",
+     "from_port": 0,
+     "to": "gen_outputs",
+     "to_port": 2
+    }
+   ]
+  },
+  {
+   "name": "stone_color",
+   "label": "Stone Color",
+   "type": "graph",
+   "node_position": {
+    "x": -600,
+    "y": -200
+   },
+   "parameters": {
+    "param0": {
+     "interpolation": 1,
+     "type": "Gradient",
+     "points": [
+      {
+       "a": 1,
+       "r": 0.2,
+       "g": 0.19,
+       "b": 0.18,
+       "pos": 0.0
+      },
+      {
+       "a": 1,
+       "r": 0.42,
+       "g": 0.39,
+       "b": 0.35,
+       "pos": 0.22
+      },
+      {
+       "a": 1,
+       "r": 0.62,
+       "g": 0.6,
+       "b": 0.55,
+       "pos": 0.44
+      },
+      {
+       "a": 1,
+       "r": 0.55,
+       "g": 0.46,
+       "b": 0.35,
+       "pos": 0.62
+      },
+      {
+       "a": 1,
+       "r": 0.38,
+       "g": 0.4,
+       "b": 0.44,
+       "pos": 0.8
+      },
+      {
+       "a": 1,
+       "r": 0.34,
+       "g": 0.28,
+       "b": 0.23,
+       "pos": 1.0
+      }
+     ]
+    },
+    "param1": 0.6
+   },
+   "seed_int": 0,
+   "nodes": [
+    {
+     "name": "gen_inputs",
+     "type": "ios",
+     "node_position": {
+      "x": -50,
+      "y": 0
+     },
+     "parameters": {},
+     "ports": [
+      {
+       "name": "joints",
+       "type": "rgba",
+       "group_size": 0
+      },
+      {
+       "name": "stone_tone",
+       "type": "f",
+       "group_size": 0
+      },
+      {
+       "name": "warp_noise",
+       "type": "f",
+       "group_size": 0
+      }
+     ],
+     "seed": 0,
+     "seed_locked": true
+    },
+    {
+     "name": "gen_outputs",
+     "type": "ios",
+     "node_position": {
+      "x": 800,
+      "y": -50
+     },
+     "parameters": {},
+     "ports": [
+      {
+       "name": "albedo",
+       "type": "rgba",
+       "group_size": 0
+      },
+      {
+       "name": "metallic",
+       "type": "rgba",
+       "group_size": 0
+      }
+     ],
+     "seed": 0
+    },
+    {
+     "name": "gen_parameters",
+     "type": "remote",
+     "node_position": {
+      "x": -50,
+      "y": -300
+     },
+     "parameters": {
+      "param0": {
+       "interpolation": 1,
+       "type": "Gradient",
+       "points": [
+        {
+         "a": 1,
+         "r": 0.2,
+         "g": 0.19,
+         "b": 0.18,
+         "pos": 0.0
+        },
+        {
+         "a": 1,
+         "r": 0.42,
+         "g": 0.39,
+         "b": 0.35,
+         "pos": 0.22
+        },
+        {
+         "a": 1,
+         "r": 0.62,
+         "g": 0.6,
+         "b": 0.55,
+         "pos": 0.44
+        },
+        {
+         "a": 1,
+         "r": 0.55,
+         "g": 0.46,
+         "b": 0.35,
+         "pos": 0.62
+        },
+        {
+         "a": 1,
+         "r": 0.38,
+         "g": 0.4,
+         "b": 0.44,
+         "pos": 0.8
+        },
+        {
+         "a": 1,
+         "r": 0.34,
+         "g": 0.28,
+         "b": 0.23,
+         "pos": 1.0
+        }
+       ]
+      },
+      "param1": 0.6
+     },
+     "seed": 0,
+     "widgets": [
+      {
+       "name": "param0",
+       "shortdesc": "Stone color",
+       "label": "",
+       "type": "linked_control",
+       "linked_widgets": [
+        {
+         "node": "StoneColor",
+         "widget": "gradient"
+        }
+       ]
+      },
+      {
+       "name": "param1",
+       "shortdesc": "Joint depth",
+       "label": "",
+       "type": "linked_control",
+       "linked_widgets": [
+        {
+         "node": "JointComposite",
+         "widget": "amount"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "name": "StoneMetallic",
+     "node_position": {
+      "x": 465,
+      "y": 33.25
+     },
+     "parameters": {
+      "gradient": {
+       "interpolation": 1,
+       "points": [
+        {
+         "a": 1,
+         "b": 0,
+         "g": 0,
+         "pos": 0,
+         "r": 0
+        },
+        {
+         "a": 1,
+         "b": 0.520833,
+         "g": 0.520833,
+         "pos": 1,
+         "r": 0.520833
+        }
+       ],
+       "type": "Gradient"
+      }
+     },
+     "type": "colorize"
+    },
+    {
+     "name": "JointComposite",
+     "node_position": {
+      "x": 541,
+      "y": -82.75
+     },
+     "parameters": {
+      "amount": 0.6,
+      "blend_type": 2
+     },
+     "type": "blend"
+    },
+    {
+     "name": "StoneColor",
+     "type": "colorize",
+     "node_position": {
+      "x": 250,
+      "y": -250
+     },
+     "parameters": {
+      "gradient": {
+       "interpolation": 1,
+       "type": "Gradient",
+       "points": [
+        {
+         "a": 1,
+         "r": 0.2,
+         "g": 0.19,
+         "b": 0.18,
+         "pos": 0.0
+        },
+        {
+         "a": 1,
+         "r": 0.42,
+         "g": 0.39,
+         "b": 0.35,
+         "pos": 0.22
+        },
+        {
+         "a": 1,
+         "r": 0.62,
+         "g": 0.6,
+         "b": 0.55,
+         "pos": 0.44
+        },
+        {
+         "a": 1,
+         "r": 0.55,
+         "g": 0.46,
+         "b": 0.35,
+         "pos": 0.62
+        },
+        {
+         "a": 1,
+         "r": 0.38,
+         "g": 0.4,
+         "b": 0.44,
+         "pos": 0.8
+        },
+        {
+         "a": 1,
+         "r": 0.34,
+         "g": 0.28,
+         "b": 0.23,
+         "pos": 1.0
+        }
+       ]
+      }
+     }
+    }
+   ],
+   "connections": [
+    {
+     "from": "StoneColor",
+     "from_port": 0,
+     "to": "JointComposite",
+     "to_port": 1
+    },
+    {
+     "from": "gen_inputs",
+     "from_port": 0,
+     "to": "JointComposite",
+     "to_port": 0
+    },
+    {
+     "from": "gen_inputs",
+     "from_port": 2,
+     "to": "StoneMetallic",
+     "to_port": 0
+    },
+    {
+     "from": "gen_inputs",
+     "from_port": 1,
+     "to": "StoneColor",
+     "to_port": 0
+    },
+    {
+     "from": "JointComposite",
+     "from_port": 0,
+     "to": "gen_outputs",
+     "to_port": 0
+    },
+    {
+     "from": "StoneMetallic",
+     "from_port": 0,
+     "to": "gen_outputs",
+     "to_port": 1
+    }
+   ]
+  },
+  {
+   "name": "stone_surface",
+   "label": "Stone Surface",
+   "type": "graph",
+   "node_position": {
+    "x": -900,
+    "y": 300
+   },
+   "parameters": {
+    "param0": 0
+   },
+   "seed_int": 0,
+   "nodes": [
+    {
+     "name": "gen_inputs",
+     "type": "ios",
+     "node_position": {
+      "x": -250,
+      "y": -360
+     },
+     "parameters": {},
+     "ports": [],
+     "seed": 0,
+     "seed_locked": true
+    },
+    {
+     "name": "gen_outputs",
+     "type": "ios",
+     "node_position": {
+      "x": 1000,
+      "y": -360
+     },
+     "parameters": {},
+     "ports": [
+      {
+       "name": "surface",
+       "type": "f",
+       "group_size": 0
+      }
+     ],
+     "seed": 0
+    },
+    {
+     "name": "gen_parameters",
+     "type": "remote",
+     "node_position": {
+      "x": 56,
+      "y": -600
+     },
+     "parameters": {
+      "param0": 0
+     },
+     "seed": 0,
+     "widgets": [
+      {
+       "name": "param0",
+       "shortdesc": "Top flatness",
+       "label": "",
+       "type": "linked_control",
+       "linked_widgets": [
+        {
+         "node": "TopFlatten",
+         "widget": "default_in2"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "name": "ReliefNoiseFine",
+     "node_position": {
+      "x": 56,
+      "y": -361.75
+     },
+     "parameters": {
+      "iterations": 10,
+      "persistence": 0.9,
+      "scale_x": 2,
+      "scale_y": 2
+     },
+     "type": "perlin"
+    },
+    {
+     "name": "TopNoiseDelta",
+     "type": "math",
+     "node_position": {
+      "x": 300,
+      "y": -450
+     },
+     "parameters": {
+      "op": 1,
+      "default_in1": 0.5
+     }
+    },
+    {
+     "name": "TopFlatten",
+     "type": "math",
+     "node_position": {
+      "x": 530,
+      "y": -450
+     },
+     "parameters": {
+      "op": 2,
+      "default_in2": 0
+     }
+    },
+    {
+     "name": "TopNoise",
+     "type": "math",
+     "node_position": {
+      "x": 760,
+      "y": -360
+     },
+     "parameters": {
+      "op": 0
+     }
+    }
+   ],
+   "connections": [
+    {
+     "from": "ReliefNoiseFine",
+     "from_port": 0,
+     "to": "TopNoiseDelta",
+     "to_port": 1
+    },
+    {
+     "from": "TopNoiseDelta",
+     "from_port": 0,
+     "to": "TopFlatten",
+     "to_port": 0
+    },
+    {
+     "from": "ReliefNoiseFine",
+     "from_port": 0,
+     "to": "TopNoise",
+     "to_port": 0
+    },
+    {
+     "from": "TopFlatten",
+     "from_port": 0,
+     "to": "TopNoise",
+     "to_port": 1
+    },
+    {
+     "from": "TopNoise",
+     "from_port": 0,
+     "to": "gen_outputs",
+     "to_port": 0
+    }
+   ]
+  },
+  {
+   "name": "mortar",
+   "label": "Mortar",
+   "type": "graph",
+   "node_position": {
+    "x": -300,
+    "y": 0
+   },
+   "parameters": {
+    "param0": 0,
+    "param1": {
+     "interpolation": 1,
+     "type": "Gradient",
+     "points": [
+      {
+       "a": 1,
+       "r": 0.3,
+       "g": 0.29,
+       "b": 0.27,
+       "pos": 0.0
+      },
+      {
+       "a": 1,
+       "r": 0.44,
+       "g": 0.42,
+       "b": 0.39,
+       "pos": 1.0
+      }
+     ]
+    }
+   },
+   "seed_int": 0,
+   "nodes": [
+    {
+     "name": "gen_inputs",
+     "type": "ios",
+     "node_position": {
+      "x": -300,
+      "y": 100
+     },
+     "parameters": {},
+     "ports": [
+      {
+       "name": "joints",
+       "type": "rgba",
+       "group_size": 0
+      },
+      {
+       "name": "albedo",
+       "type": "rgba",
+       "group_size": 0
+      },
+      {
+       "name": "surface",
+       "type": "f",
+       "group_size": 0
+      }
+     ],
+     "seed": 0,
+     "seed_locked": true
+    },
+    {
+     "name": "gen_outputs",
+     "type": "ios",
+     "node_position": {
+      "x": 1350,
+      "y": 50
+     },
+     "parameters": {},
+     "ports": [
+      {
+       "name": "albedo",
+       "type": "rgba",
+       "group_size": 0
+      },
+      {
+       "name": "joints",
+       "type": "f",
+       "group_size": 0
+      }
+     ],
+     "seed": 0
+    },
+    {
+     "name": "gen_parameters",
+     "type": "remote",
+     "node_position": {
+      "x": -300,
+      "y": 400
+     },
+     "parameters": {
+      "param0": 0,
+      "param1": {
+       "interpolation": 1,
+       "type": "Gradient",
+       "points": [
+        {
+         "a": 1,
+         "r": 0.3,
+         "g": 0.29,
+         "b": 0.27,
+         "pos": 0.0
+        },
+        {
+         "a": 1,
+         "r": 0.44,
+         "g": 0.42,
+         "b": 0.39,
+         "pos": 1.0
+        }
+       ]
+      }
+     },
+     "seed": 0,
+     "widgets": [
+      {
+       "name": "param0",
+       "shortdesc": "Mortar fill",
+       "label": "",
+       "type": "linked_control",
+       "linked_widgets": [
+        {
+         "node": "MortarLevel",
+         "widget": "color"
+        }
+       ]
+      },
+      {
+       "name": "param1",
+       "shortdesc": "Mortar color",
+       "label": "",
+       "type": "linked_control",
+       "linked_widgets": [
+        {
+         "node": "MortarColor",
+         "widget": "gradient"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "name": "MortarLevel",
+     "type": "uniform_greyscale",
+     "node_position": {
+      "x": 0,
+      "y": 300
+     },
+     "parameters": {
+      "color": 0
+     }
+    },
+    {
+     "name": "MortarRelief",
+     "type": "math",
+     "node_position": {
+      "x": 300,
+      "y": 100
+     },
+     "parameters": {
+      "op": 14
+     }
+    },
+    {
+     "name": "MortarDepth",
+     "type": "math",
+     "node_position": {
+      "x": 300,
+      "y": 350
+     },
+     "parameters": {
+      "op": 1
+     }
+    },
+    {
+     "name": "MortarRamp",
+     "type": "math",
+     "node_position": {
+      "x": 550,
+      "y": 350
+     },
+     "parameters": {
+      "op": 2,
+      "default_in2": 8,
+      "clamp": true
+     }
+    },
+    {
+     "name": "MortarMask",
+     "type": "math",
+     "node_position": {
+      "x": 800,
+      "y": 350
+     },
+     "parameters": {
+      "op": 20,
+      "clamp": true
+     }
+    },
+    {
+     "name": "MortarColor",
+     "type": "colorize",
+     "node_position": {
+      "x": 300,
+      "y": -150
+     },
+     "parameters": {
+      "gradient": {
+       "interpolation": 1,
+       "type": "Gradient",
+       "points": [
+        {
+         "a": 1,
+         "r": 0.3,
+         "g": 0.29,
+         "b": 0.27,
+         "pos": 0.0
+        },
+        {
+         "a": 1,
+         "r": 0.44,
+         "g": 0.42,
+         "b": 0.39,
+         "pos": 1.0
+        }
+       ]
+      }
+     }
+    },
+    {
+     "name": "MortarColorComposite",
+     "type": "blend",
+     "node_position": {
+      "x": 1050,
+      "y": -50
+     },
+     "parameters": {
+      "blend_type": 0,
+      "amount": 1
+     }
+    }
+   ],
+   "connections": [
+    {
+     "from": "MortarLevel",
+     "from_port": 0,
+     "to": "MortarRelief",
+     "to_port": 1
+    },
+    {
+     "from": "MortarLevel",
+     "from_port": 0,
+     "to": "MortarDepth",
+     "to_port": 0
+    },
+    {
+     "from": "MortarDepth",
+     "from_port": 0,
+     "to": "MortarRamp",
+     "to_port": 0
+    },
+    {
+     "from": "MortarRamp",
+     "from_port": 0,
+     "to": "MortarMask",
+     "to_port": 0
+    },
+    {
+     "from": "MortarColor",
+     "from_port": 0,
+     "to": "MortarColorComposite",
+     "to_port": 0
+    },
+    {
+     "from": "MortarMask",
+     "from_port": 0,
+     "to": "MortarColorComposite",
+     "to_port": 2
+    },
+    {
+     "from": "gen_inputs",
+     "from_port": 0,
+     "to": "MortarRelief",
+     "to_port": 0
+    },
+    {
+     "from": "gen_inputs",
+     "from_port": 0,
+     "to": "MortarDepth",
+     "to_port": 1
+    },
+    {
+     "from": "gen_inputs",
+     "from_port": 1,
+     "to": "MortarColorComposite",
+     "to_port": 1
+    },
+    {
+     "from": "gen_inputs",
+     "from_port": 2,
+     "to": "MortarColor",
+     "to_port": 0
+    },
+    {
+     "from": "MortarColorComposite",
+     "from_port": 0,
+     "to": "gen_outputs",
+     "to_port": 0
+    },
+    {
+     "from": "MortarRelief",
+     "from_port": 0,
+     "to": "gen_outputs",
+     "to_port": 1
+    }
+   ]
+  },
+  {
+   "name": "relief",
+   "label": "Relief",
+   "type": "graph",
+   "node_position": {
+    "x": 0,
+    "y": 200
+   },
+   "parameters": {
+    "param0": 0.99
+   },
+   "seed_int": 0,
+   "nodes": [
+    {
+     "name": "gen_inputs",
+     "type": "ios",
+     "node_position": {
+      "x": -50,
+      "y": 150
+     },
+     "parameters": {},
+     "ports": [
+      {
+       "name": "joints",
+       "type": "f",
+       "group_size": 0
+      },
+      {
+       "name": "surface",
+       "type": "f",
+       "group_size": 0
+      }
+     ],
+     "seed": 0,
+     "seed_locked": true
+    },
+    {
+     "name": "gen_outputs",
+     "type": "ios",
+     "node_position": {
+      "x": 1000,
+      "y": 150
+     },
+     "parameters": {},
+     "ports": [
+      {
+       "name": "normal",
+       "type": "rgb",
+       "group_size": 0
+      },
+      {
+       "name": "depth",
+       "type": "rgba",
+       "group_size": 0
+      }
+     ],
+     "seed": 0
+    },
+    {
+     "name": "gen_parameters",
+     "type": "remote",
+     "node_position": {
+      "x": -50,
+      "y": -250
+     },
+     "parameters": {
+      "param0": 0.99
+     },
+     "seed": 0,
+     "widgets": [
+      {
+       "name": "param0",
+       "shortdesc": "Relief strength",
+       "label": "",
+       "type": "linked_control",
+       "linked_widgets": [
+        {
+         "node": "StoneNormal",
+         "widget": "param1"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "name": "ReliefComposite",
+     "node_position": {
+      "x": 442,
+      "y": 175.25
+     },
+     "parameters": {
+      "amount": 0.5,
+      "blend_type": 0
+     },
+     "type": "blend"
+    },
+    {
+     "name": "StoneNormal",
+     "node_position": {
+      "x": 706,
+      "y": 95.25
+     },
+     "parameters": {
+      "amount": 0.35,
+      "param0": 11,
+      "param1": 0.99,
+      "param2": 0,
+      "param3": 0,
+      "param4": 0,
+      "size": 2
+     },
+     "type": "normal_map"
+    },
+    {
+     "name": "ReliefRamp",
+     "node_position": {
+      "x": 252,
+      "y": 178.25
+     },
+     "parameters": {
+      "gradient": {
+       "interpolation": 1,
+       "points": [
+        {
+         "a": 1,
+         "b": 1,
+         "g": 1,
+         "pos": 0,
+         "r": 1
+        },
+        {
+         "a": 1,
+         "b": 0,
+         "g": 0,
+         "pos": 1,
+         "r": 0
+        }
+       ],
+       "type": "Gradient"
+      }
+     },
+     "type": "colorize"
+    },
+    {
+     "name": "ReliefHeight",
+     "node_position": {
+      "x": 717.815796,
+      "y": 200.5625
+     },
+     "parameters": {
+      "gradient": {
+       "interpolation": 1,
+       "points": [
+        {
+         "a": 1,
+         "b": 1,
+         "g": 1,
+         "pos": 0,
+         "r": 1
+        },
+        {
+         "a": 1,
+         "b": 0,
+         "g": 0,
+         "pos": 1,
+         "r": 0
+        }
+       ],
+       "type": "Gradient"
+      }
+     },
+     "type": "colorize"
+    }
+   ],
+   "connections": [
+    {
+     "from": "ReliefRamp",
+     "from_port": 0,
+     "to": "ReliefComposite",
+     "to_port": 1
+    },
+    {
+     "from": "ReliefComposite",
+     "from_port": 0,
+     "to": "ReliefHeight",
+     "to_port": 0
+    },
+    {
+     "from": "ReliefHeight",
+     "from_port": 0,
+     "to": "StoneNormal",
+     "to_port": 0
+    },
+    {
+     "from": "gen_inputs",
+     "from_port": 1,
+     "to": "ReliefComposite",
+     "to_port": 0
+    },
+    {
+     "from": "gen_inputs",
+     "from_port": 0,
+     "to": "ReliefRamp",
+     "to_port": 0
+    },
+    {
+     "from": "StoneNormal",
+     "from_port": 0,
+     "to": "gen_outputs",
+     "to_port": 0
+    },
+    {
+     "from": "ReliefComposite",
+     "from_port": 0,
+     "to": "gen_outputs",
+     "to_port": 1
+    }
+   ]
+  },
+  {
+   "name": "surface_grain",
+   "label": "Surface Grain",
+   "type": "graph",
+   "node_position": {
+    "x": 0,
+    "y": -200
+   },
+   "parameters": {
+    "param0": 40,
+    "param1": {
+     "interpolation": 1,
+     "type": "Gradient",
+     "points": [
+      {
+       "a": 1,
+       "r": 0.82,
+       "g": 0.82,
+       "b": 0.82,
+       "pos": 0.0
+      },
+      {
+       "a": 1,
+       "r": 1.0,
+       "g": 1.0,
+       "b": 1.0,
+       "pos": 1.0
+      }
+     ]
+    }
+   },
+   "seed_int": 0,
+   "nodes": [
+    {
+     "name": "gen_inputs",
+     "type": "ios",
+     "node_position": {
+      "x": -300,
+      "y": -100
+     },
+     "parameters": {},
+     "ports": [
+      {
+       "name": "albedo",
+       "type": "rgba",
+       "group_size": 0
+      }
+     ],
+     "seed": 0,
+     "seed_locked": true
+    },
+    {
+     "name": "gen_outputs",
+     "type": "ios",
+     "node_position": {
+      "x": 750,
+      "y": -50
+     },
+     "parameters": {},
+     "ports": [
+      {
+       "name": "albedo",
+       "type": "rgba",
+       "group_size": 0
+      }
+     ],
+     "seed": 0
+    },
+    {
+     "name": "gen_parameters",
+     "type": "remote",
+     "node_position": {
+      "x": -300,
+      "y": 150
+     },
+     "parameters": {
+      "param0": 40,
+      "param1": {
+       "interpolation": 1,
+       "type": "Gradient",
+       "points": [
+        {
+         "a": 1,
+         "r": 0.82,
+         "g": 0.82,
+         "b": 0.82,
+         "pos": 0.0
+        },
+        {
+         "a": 1,
+         "r": 1.0,
+         "g": 1.0,
+         "b": 1.0,
+         "pos": 1.0
+        }
+       ]
+      }
+     },
+     "seed": 0,
+     "widgets": [
+      {
+       "name": "param0",
+       "shortdesc": "Grain scale",
+       "label": "",
+       "type": "named_parameter",
+       "min": 1,
+       "max": 64,
+       "step": 1,
+       "default": 40
+      },
+      {
+       "name": "param1",
+       "shortdesc": "Grain contrast",
+       "label": "",
+       "type": "linked_control",
+       "linked_widgets": [
+        {
+         "node": "GrainContrast",
+         "widget": "gradient"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "name": "GrainNoise",
+     "type": "perlin",
+     "node_position": {
+      "x": 0,
+      "y": 0
+     },
+     "parameters": {
+      "scale_x": "$param0",
+      "scale_y": "$param0",
+      "iterations": 5
+     }
+    },
+    {
+     "name": "GrainContrast",
+     "type": "colorize",
+     "node_position": {
+      "x": 250,
+      "y": -150
+     },
+     "parameters": {
+      "gradient": {
+       "interpolation": 1,
+       "type": "Gradient",
+       "points": [
+        {
+         "a": 1,
+         "r": 0.82,
+         "g": 0.82,
+         "b": 0.82,
+         "pos": 0.0
+        },
+        {
+         "a": 1,
+         "r": 1.0,
+         "g": 1.0,
+         "b": 1.0,
+         "pos": 1.0
+        }
+       ]
+      }
+     }
+    },
+    {
+     "name": "GrainOverStone",
+     "type": "blend",
+     "node_position": {
+      "x": 500,
+      "y": -50
+     },
+     "parameters": {
+      "blend_type": 2,
+      "amount": 1
+     }
+    }
+   ],
+   "connections": [
+    {
+     "from": "GrainNoise",
+     "from_port": 0,
+     "to": "GrainContrast",
+     "to_port": 0
+    },
+    {
+     "from": "GrainContrast",
+     "from_port": 0,
+     "to": "GrainOverStone",
+     "to_port": 1
+    },
+    {
+     "from": "gen_inputs",
+     "from_port": 0,
+     "to": "GrainOverStone",
+     "to_port": 0
+    },
+    {
+     "from": "GrainOverStone",
+     "from_port": 0,
+     "to": "gen_outputs",
+     "to_port": 0
+    }
+   ]
+  }
+ ],
+ "parameters": {},
+ "type": "graph"
+}

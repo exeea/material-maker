@@ -11,6 +11,34 @@ static func name_to_lower(s : String) -> String:
 	s = s.remove_chars("()/\"")
 	return s
 
+# Exports the material and the Export nodes of gen, returns how many exports ran.
+# Shared by the command line export and the MCP server.
+static func export_generator(gen : MMGenBase, prefix : String, target : String, image_size : int) -> int:
+	var exported : int = 0
+	var gen_stack : Array[MMGenBase] = [gen]
+	while gen_stack.size():
+		var c : MMGenBase = gen_stack.pop_back()
+		gen_stack.append_array(c.get_children())
+		if c.has_method("export_material"):
+			var best_target : String = target
+			if c.has_method("get_export_profiles"):
+				if c.get_export_profiles().find(target) == -1:
+					var best_similarity : float = 0.0
+					for p : String in c.get_export_profiles():
+						var similarity : float = p.similarity(target)
+						if similarity > best_similarity:
+							best_similarity = similarity
+							best_target = p
+					if best_target == "":
+						continue
+					print("Using target ", best_target, " (and not ", target, ")")
+			else:
+				var file_name : String = c.interpret_file_name(c.parameters.suffix, prefix.get_base_dir())
+				print("Saving additional export %s" % file_name)
+			await c.export_material(prefix, best_target, image_size, true)
+			exported += 1
+	return exported
+
 func export_files(files, output_dir, target, target_file, image_size) -> void:
 	var website_materials : Array = []
 	var export_list : PackedStringArray = PackedStringArray()
@@ -58,38 +86,17 @@ func export_files(files, output_dir, target, target_file, image_size) -> void:
 		var mat_author_lower = name_to_lower(mat_author)
 		if gen != null:
 			add_child(gen)
-			var gen_stack : Array[MMGenBase] = [gen]
-			while gen_stack.size():
-				var c : MMGenBase = gen_stack.pop_back()
-				gen_stack.append_array(c.get_children())
-				if c.has_method("export_material"):
-					var best_target : String = target
-					if c.has_method("get_export_profiles"):
-						if c.get_export_profiles().find(target) == -1:
-							var best_similarity : float = 0.0
-							for p : String in c.get_export_profiles():
-								var similarity : float = p.similarity(target)
-								if similarity > best_similarity:
-									best_similarity = similarity
-									best_target = p
-							if best_target == "":
-								continue
-							print("Using target ", best_target, " (and not ", target, ")")
-					var target_file_name : String = target_file
-					target_file_name = target_file_name.replace("%f", basename)
-					target_file_name = target_file_name.replace("%N", mat_name)
-					target_file_name = target_file_name.replace("%A", mat_author)
-					target_file_name = target_file_name.replace("%n", mat_name_lower)
-					target_file_name = target_file_name.replace("%a", mat_author_lower)
-					var prefix : String = output_dir.path_join(target_file_name)
-					if c.has_method("get_export_profiles"):
-						print("Exporting Material %s to %s..." % [f.get_file(), prefix])
-					else:
-						var file_name : String = c.interpret_file_name(c.parameters.suffix, prefix.get_base_dir())
-						print("Saving additional export %s" % file_name)
-					await c.export_material(prefix, best_target, image_size, true)
-					if from_website:
-						export_list.append("\""+prefix.get_file()+"\": \""+mat_name+","+mat_author+"\"")
+			var target_file_name : String = target_file
+			target_file_name = target_file_name.replace("%f", basename)
+			target_file_name = target_file_name.replace("%N", mat_name)
+			target_file_name = target_file_name.replace("%A", mat_author)
+			target_file_name = target_file_name.replace("%n", mat_name_lower)
+			target_file_name = target_file_name.replace("%a", mat_author_lower)
+			var prefix : String = output_dir.path_join(target_file_name)
+			print("Exporting %s to %s..." % [f.get_file(), prefix])
+			var exported : int = await export_generator(gen, prefix, target, image_size)
+			if exported > 0 and from_website:
+				export_list.append("\""+prefix.get_file()+"\": \""+mat_name+","+mat_author+"\"")
 			print("Done")
 			gen.queue_free()
 	if not export_list.is_empty():

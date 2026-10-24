@@ -41,6 +41,39 @@ Can't wait for next release? Automated builds from master branch are available (
 
 - **[User manual](https://rodzill4.github.io/material-maker/doc/)**
 
+## MCP server for AI agents
+
+This fork ([releases](https://github.com/exeea/material-maker/releases)) can be driven by AI agents through the
+[Model Context Protocol](https://modelcontextprotocol.io). Start Material Maker with `--mcp` (port 8790) or
+`--mcp-port <port>`:
+
+```text
+material_maker.exe --mcp
+./material_maker.x86_64 --mcp
+open -a "Material Maker" --args --mcp
+```
+
+Then add `http://127.0.0.1:8790/mcp` to your agent as a Streamable HTTP server, for example in Claude Code:
+
+```text
+claude mcp add --transport http material-maker http://127.0.0.1:8790/mcp
+```
+
+The agent works on the graph shown in the current tab: you see every change live and can undo it.
+
+| Tool | What it does |
+|---|---|
+| `list_nodes`, `describe_node` | Search the node library; parameters, inputs and outputs of a node |
+| `validate_graph` | Build a `.ptex` graph without opening it and report what Material Maker cannot create or connect |
+| `load_graph`, `new_graph`, `get_graph`, `save_graph` | Open, create, read and save projects |
+| `add_node`, `connect_nodes`, `disconnect_nodes`, `remove_node`, `set_parameters` | Edit the current graph |
+| `render_node` | Render a node output, or a map of the Material node, as an image |
+| `export_material` | Export the texture maps of the current project or of a `.ptex` file |
+| `list_examples` | Example projects, including a cookbook of 55 finished materials with recipe notes |
+
+The server only accepts connections from this computer. Material Maker's window must stay open, because
+rendering uses the GPU.
+
 ## Translations
 
 Translation files can be installed using the **Install** button in the **Preferences** dialog.
