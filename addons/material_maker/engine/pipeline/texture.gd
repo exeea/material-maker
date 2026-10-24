@@ -110,7 +110,8 @@ func set_texture(new_texture : ImageTexture) -> void:
 				texture_format = RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT
 		texture_size = image.get_size()
 	if rid.is_valid():
-		rd.free_rid(rid)
+		# The rendering device only frees resources on its own thread
+		mm_renderer.thread_run(in_thread_free_rid, [rid, rd])
 	rid = RID()
 
 func get_width() -> int:

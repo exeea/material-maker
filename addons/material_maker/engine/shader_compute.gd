@@ -8,6 +8,9 @@ var compute_shader : MMComputeShader = MMComputeShader.new()
 func set_shader_from_shadercode(shader_code : MMGenBase.ShaderCode, is_32_bits : bool = false) -> bool:
 	return await compute_shader.set_shader_from_shadercode(shader_code, is_32_bits)
 
+func has_shader() -> bool:
+	return compute_shader.shader.is_valid()
+
 func get_parameters() -> Dictionary:
 	return compute_shader.get_parameters()
 

@@ -38,6 +38,8 @@ var buffers : Dictionary[String, Buffer] = {}
 
 var reset_stats : bool = true
 var render_queue_size : int = 0
+# Bumped whenever a buffer finishes rendering or gets a new shader
+var progress : int = 0
 
 
 signal render_queue_empty
@@ -151,6 +153,7 @@ func dependency_update(dependency_name : String, value = null, internal : bool =
 				is_buffer_just_updated = true
 		b.status = Buffer.Updated
 		b.renders += 1
+		progress += 1
 	if ! internal:
 		#print("Resetting stats because of %s" % dependency_name)
 		reset_stats = true
@@ -212,13 +215,33 @@ func do_update():
 	updating = false
 	updated.emit()
 
-func get_render_queue_size() -> int:
+func get_render_queue_size(include_errors : bool = true) -> int:
 	var invalidated_buffers : int = 0
 	for b in buffers.keys():
 		var buffer : Buffer = buffers[b]
-		if buffer.object != null and buffer.object is MMGenBase and buffer.status != Buffer.Updated:
+		if buffer.object != null and buffer.object is MMGenBase and buffer.status != Buffer.Updated and (include_errors or buffer.status != Buffer.Error):
 			invalidated_buffers += 1
 	return invalidated_buffers
+
+# Waits until all buffers that can still render (not paused or failed) are rendered.
+# Gives up after stall_ms without progress, e.g. when a shader failed to compile.
+func wait_for_render_queue(stall_ms : int = 10000) -> void:
+	var last_progress : int = -1
+	var deadline : int = 0
+	while get_render_queue_size(false) > 0:
+		if updating or progress != last_progress:
+			last_progress = progress
+			deadline = Time.get_ticks_msec() + stall_ms
+		elif Time.get_ticks_msec() > deadline:
+			var stalled : PackedStringArray = []
+			for b in buffers.keys():
+				var buffer : Buffer = buffers[b]
+				if buffer.object is MMGenBase and buffer.status != Buffer.Updated and buffer.status != Buffer.Error:
+					stalled.append("%s (%s, %s)" % [ b, Buffer.STATUS[buffer.status], buffer.object.get_type() ])
+			print("Render queue stalled: " + ", ".join(stalled))
+			return
+		update()
+		await get_tree().process_frame
 
 func material_update_params(material : MMShaderBase):
 	for p in material.get_parameters().keys():
@@ -232,6 +255,9 @@ func buffer_create_compute_material(buffer_name : String, material : MMShaderBas
 		if value != null:
 			await material.set_parameter(p, value)
 	buffers[buffer_name].shader_generations += 1
+	progress += 1
+	# Render with the new shader (buffers skip rendering until they have one)
+	buffer_invalidate(buffer_name)
 
 func buffer_create_shader_material(buffer_name : String, material : MMShaderBase, shader : String):
 	if await material.set_shader(shader):

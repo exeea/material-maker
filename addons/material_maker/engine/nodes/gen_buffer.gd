@@ -133,6 +133,9 @@ func on_dep_update_value(buffer_name, parameter_name, value) -> bool:
 func on_dep_update_buffer(buffer_name : String) -> bool:
 	if is_paused:
 		return false
+	if not shader_compute.has_shader():
+		# Not compiled yet: buffer_create_compute_material invalidates this buffer again
+		return true
 	var status = await shader_compute.render(texture, pow(2, get_parameter("size")))
 	if status:
 		rendering_time = shader_compute.get_render_time()

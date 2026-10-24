@@ -718,15 +718,7 @@ func export_material(prefix : String, profile : String, size : int = 0, command_
 		var e: Error = OK
 		match f.type:
 			"texture":
-				# Wait until the render queue is empty
-				if mm_deps.get_render_queue_size() > 0:
-					var render_queue_size : int = mm_deps.get_render_queue_size()
-					while true:
-						mm_deps.update()
-						await mm_deps.updated
-						if render_queue_size == mm_deps.get_render_queue_size():
-							break
-						render_queue_size = mm_deps.get_render_queue_size()
+				await mm_deps.wait_for_render_queue()
 				var file_name = subst_string(f.file_name, export_context)
 				var output_index : int
 				if f.has("output"):
@@ -771,15 +763,7 @@ func export_material(prefix : String, profile : String, size : int = 0, command_
 				if progress_dialog:
 					progress_dialog.set_progress(float(processed_files)/float(total_files))
 			"buffers":
-				# Wait until the render queue is empty
-				if mm_deps.get_render_queue_size() > 0:
-					var render_queue_size : int = mm_deps.get_render_queue_size()
-					while true:
-						mm_deps.update()
-						await mm_deps.updated
-						if render_queue_size == mm_deps.get_render_queue_size():
-							break
-						render_queue_size = mm_deps.get_render_queue_size()
+				await mm_deps.wait_for_render_queue()
 				var index : int = 1
 				for t in preview_texture_dependencies.keys():
 					var file_name = subst_string(f.file_name, export_context)

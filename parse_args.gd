@@ -100,13 +100,13 @@ func _ready():
 	var args : PackedStringArray = OS.get_cmdline_args()
 	if ("--export" in args) or ("--export-material" in args):
 		print("Exporting...")
-		var image_size : int = 2048
 		var dir : DirAccess = DirAccess.open(".")
 		print("Current dir: ", dir.get_current_dir())
 		var target : String = "Godot/Godot 4 Standard"
 		#TODO: fix this
 		var output_dir : String = dir.get_current_dir()
 		var output_file : String = "%f"
+		# 0 exports at each node's own Size, like the editor
 		var texture_size : int = 0
 		var files : Array[String] = []
 		var i = 1
@@ -164,7 +164,7 @@ func _ready():
 									expanded_files.push_back("website:"+str(mi))
 			else:
 				expanded_files.push_back(f)
-		await export_files(expanded_files, output_dir, target, output_file, image_size)
+		await export_files(expanded_files, output_dir, target, output_file, texture_size)
 	else:
 		var no_logo : bool = ( args.find("--no-splash") != -1 )
 		var scene : PackedScene

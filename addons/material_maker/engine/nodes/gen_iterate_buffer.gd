@@ -105,7 +105,8 @@ func update_shaders() -> void:
 
 func do_update_shaders() -> void:
 	if not is_inside_tree():
-		return
+		# Returning here would drop the request: require_shaders_update blocks new ones
+		await tree_entered
 	require_shaders_update = false
 	var sources : Array[ShaderCode] = [null, null]
 	var new_is_greyscale = true
@@ -179,10 +180,13 @@ func on_dep_update_buffer(buffer_name : String) -> bool:
 		print("Already rendering ", buffer_name)
 		return true
 	
-	is_rendering = true
-	
 	var first_iteration : bool = ( current_iteration == 0 )
 	var shader_compute : MMShaderCompute = shader_computes[0] if first_iteration else shader_computes[1]
+	if not shader_compute.has_shader():
+		# Not compiled yet: buffer_create_compute_material invalidates this buffer again
+		return true
+	
+	is_rendering = true
 	# Calculate iteration count
 	var iterations = calculate_float_parameter("iterations")
 	if iterations.has("used_named_parameters"):
