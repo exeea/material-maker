@@ -4,6 +4,7 @@ extends Node
 ## graph editor (so edits show live and can be undone) and exporter.
 
 const ExportCommand = preload("res://parse_args.gd")
+const PtexFile = preload("res://addons/material_maker_mcp/ptex_file.gd")
 
 const NO_WINDOW : String = "The Material Maker window is not ready"
 const NO_GRAPH : String = "No graph is open in Material Maker"
@@ -12,6 +13,7 @@ const INSTRUCTIONS : String = """Material Maker builds procedural PBR materials 
 These tools work on a Material Maker tab, live: the user sees every edit and can undo it. load_graph, new_graph and get_graph return the tab's handle; pass it as tab to stay on that tab when the user or another agent switches tabs. Graphs can hold subgraphs (get_graph counts their nodes): pass subgraph, the node names from the top level joined by '/', to read, edit or render inside one, "" for the top level. By default tools use the current tab and the graph it shows.
 Find nodes with list_nodes, read their parameters and ports with describe_node, then build with apply_edits (or add_node, connect_nodes and set_parameters), or load a whole graph (the .ptex JSON format) with load_graph. Close tabs you no longer need with close_graph.
 Check outputs with render_node, judge the material lit and tiled with render_preview, compare parameter values with render_sweep, and write texture maps with export_material. Node names are the names used in graph JSON, ports count from 0.
+To change .ptex files without opening them, e.g. the same change across many projects, use edit_files.
 Examples, including a cookbook of finished materials, are listed by list_examples."""
 
 const GRAPH_ARGUMENTS : Dictionary = {
@@ -179,6 +181,14 @@ const TOOLS : Array = [
 			"size": { "type": "integer", "description": "Edge length in pixels; default is the material's Size" },
 			"graph_path": { "type": "string", "description": "Export this .ptex file instead of a tab's project" },
 			"tab": TAB_ARGUMENT } }
+	},
+	{
+		"name": "edit_files",
+		"description": "Applies the same edits to .ptex files without opening them, and reports per file what changed, problems the edits caused and missing images. Saves only with save, each file in its own layout, and never a file open in a tab. Each edit has an op and a subgraph path (default top level): set (node, parameters, title, text; a value can be {\"expression\": \"value * RepeatMetres\"}, where value is the current value, the parameters of the graph's remote nodes are variables, and parameter(\"Sub/node\", \"name\") reads any other); add_parameter (node: a remote node, default gen_parameters; name, label, and either min, max, step, default, value for a named parameter used as $name in expressions, or links: [{node, parameter}] for a control of other nodes' parameters); update_parameter (node, name, label, min, max, step, default); rename_parameter (node, name, new_name: also changes $name in expressions, the subgraph's value and the controls linked to it); remove_parameter (node, name; refused while expressions use it); relink (from, to: replaced in image node paths).",
+		"inputSchema": { "type": "object", "required": [ "files", "edits" ], "properties": {
+			"files": { "type": "array", "items": { "type": "string" }, "description": ".ptex paths; * and ? match any characters, / included" },
+			"edits": { "type": "array", "items": { "type": "object" } },
+			"save": { "type": "boolean", "description": "Write the files; default false only reports" } } }
 	},
 	{
 		"name": "list_examples",
@@ -879,6 +889,115 @@ func tool_export_material(args : Dictionary):
 		if FileAccess.get_modified_time(directory.path_join(f)) >= start:
 			files.append(directory.path_join(f))
 	return { exported=exported, files=files }
+
+func tool_edit_files(args : Dictionary):
+	if not args.get("edits") is Array or args.edits.is_empty():
+		return "Pass a list of edits"
+	var paths : PackedStringArray = matching_files(args.get("files"))
+	if paths.is_empty():
+		return "No .ptex file matches files"
+	var open_paths : PackedStringArray = open_project_paths()
+	var reports : Array = []
+	var saved : int = 0
+	for path in paths:
+		var report : Dictionary = await edit_file(path, args.edits)
+		var file = report.get("file")
+		report.erase("file")
+		if file != null and args.get("save", false) and not file.changes.is_empty():
+			if report.has("problems"):
+				report.not_saved = "The edits cause problems"
+			elif path.to_lower() in open_paths:
+				report.not_saved = "Open in a tab: close it first"
+			else:
+				var error : String = file.save()
+				if error == "":
+					report.saved = true
+					saved += 1
+				else:
+					report.error = error
+		reports.append(report)
+	return { files=reports, saved=saved }
+
+# Applies edits to one .ptex file's data: a report with path, changes and the problems the edits caused,
+# and the edited file (unsaved) unless an edit failed
+func edit_file(path : String, edits : Array) -> Dictionary:
+	var file = PtexFile.new()
+	var report : Dictionary = { path=path }
+	var error : String = file.read(path)
+	if error != "":
+		report.error = error
+		return report
+	var before : PackedStringArray = await data_problems(file)
+	for i in edits.size():
+		var edit : Dictionary = edits[i] if edits[i] is Dictionary else {}
+		error = file.apply(edit)
+		if error != "":
+			report.error = error if edits.size() == 1 else "Edit %d (%s): %s" % [ i, edit.get("op", ""), error ]
+			return report
+	report.changes = file.changes
+	var problems : PackedStringArray = []
+	for problem in await data_problems(file):
+		if not problem in before:
+			problems.append(problem)
+	if not problems.is_empty():
+		report.problems = problems
+	var missing : PackedStringArray = file.missing_images()
+	if not missing.is_empty():
+		report.missing_images = missing
+	report.file = file
+	return report
+
+# What Material Maker reports when it builds a file's data: graph problems, and the parameters the edits
+# used that do not exist
+func data_problems(file) -> PackedStringArray:
+	var data : Dictionary = MMLoader.replace_arrays_with_multiline_strings(file.data.duplicate(true))
+	mm_loader.current_project_path = file.path.get_base_dir()
+	var generator : MMGenBase = await mm_loader.create_gen(data)
+	mm_loader.current_project_path = ""
+	if generator == null:
+		return [ "Material Maker cannot build this graph" ]
+	var problems : PackedStringArray = graph_problems(data, generator)
+	for check in file.checks:
+		var node = generator.get_node_or_null(NodePath(check.node))
+		if not node is MMGenBase or node.get_parameter_def(check.parameter).is_empty():
+			problems.append("%s has no parameter '%s'" % [ check.node, check.parameter ])
+	free_detached(generator)
+	return problems
+
+# The .ptex files of a list of paths and patterns, where * and ? also match /
+static func matching_files(patterns) -> PackedStringArray:
+	var paths : PackedStringArray = []
+	for pattern in patterns if patterns is Array else []:
+		pattern = str(pattern).replace("\\", "/")
+		var wildcard : int = pattern.length()
+		for c in [ "*", "?" ]:
+			if pattern.find(c) >= 0:
+				wildcard = mini(wildcard, pattern.find(c))
+		if wildcard == pattern.length():
+			if FileAccess.file_exists(pattern) and not pattern in paths:
+				paths.append(pattern)
+		else:
+			var slash : int = pattern.rfind("/", wildcard)
+			collect_files(pattern.left(slash) if slash >= 0 else ".", pattern, paths)
+	return paths
+
+static func collect_files(directory : String, pattern : String, paths : PackedStringArray) -> void:
+	for f in DirAccess.get_files_at(directory):
+		var file_path : String = directory.path_join(f)
+		if f.get_extension() == "ptex" and file_path.matchn(pattern) and not file_path in paths:
+			paths.append(file_path)
+	for d in DirAccess.get_directories_at(directory):
+		collect_files(directory.path_join(d), pattern, paths)
+
+# The files of the projects open in tabs, lower case with forward slashes
+func open_project_paths() -> PackedStringArray:
+	var paths : PackedStringArray = []
+	var projects = mm_globals.main_window.projects_panel.get_projects() if mm_globals.main_window != null else null
+	for i in projects.get_tab_count() if projects != null else 0:
+		var graph_edit : MMGraphEdit = tab_graph_edit(projects, i)
+		if graph_edit != null and graph_edit.save_path != "":
+			paths.append(graph_edit.save_path.replace("\\", "/").to_lower())
+	return paths
 
 func tool_list_examples(args : Dictionary):
 	var directories : PackedStringArray = [ MMPaths.get_examples_dir() ]

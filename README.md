@@ -75,6 +75,7 @@ by its first comment.
 | `render_node` | Render a node output, or a map of the Material node, as an image |
 | `render_preview`, `render_sweep` | Render the material lit on a sphere or a square, or tiled 3x3 to check seams; a contact sheet across values of one parameter |
 | `export_material` | Export the texture maps of a project or of a `.ptex` file |
+| `edit_files` | Apply the same edits to many `.ptex` files without opening them: values (also computed from each project's parameters), exposed parameters (add, rename, remove, kept consistent), comments and image paths; reports each file's changes and saves it in its own layout |
 | `list_examples` | Example projects, including a cookbook of 55 finished materials with recipe notes |
 
 The server only accepts connections from this computer. Material Maker's window must stay open, because
