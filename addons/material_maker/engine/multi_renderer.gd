@@ -120,6 +120,10 @@ var rendering_thread_running : bool
 var rendering_thread_working : bool = false
 var rendering_device : RenderingDevice
 var rendering_device_user = null
+# RIDs the rendering thread frees together: one thread_run each took several frames, and closing a
+# project queued thousands, which held up rendering for minutes
+var rids_to_free : Array = []
+var rids_to_free_mutex : Mutex = Mutex.new()
 
 func thread_loop():
 	while true:
@@ -200,3 +204,22 @@ func release_rendering_device(user) -> void:
 		print("Release rendering device with incorrect user. Please fix your code")
 	rendering_device_user = null
 	free_rendering_device.emit()
+
+# Frees a RID on the rendering thread, with the other RIDs queued meanwhile
+func free_rid_in_thread(rid : RID, rd : RenderingDevice) -> void:
+	if not rid.is_valid():
+		return
+	rids_to_free_mutex.lock()
+	var first : bool = rids_to_free.is_empty()
+	rids_to_free.append([ rid, rd ])
+	rids_to_free_mutex.unlock()
+	if first:
+		thread_run(free_queued_rids)
+
+func free_queued_rids() -> void:
+	rids_to_free_mutex.lock()
+	var queued : Array = rids_to_free
+	rids_to_free = []
+	rids_to_free_mutex.unlock()
+	for r in queued:
+		r[1].free_rid(r[0])

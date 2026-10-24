@@ -18,11 +18,7 @@ func _notification(what : int) -> void:
 	match what:
 		NOTIFICATION_PREDELETE:
 			if mm_renderer:
-				await mm_renderer.thread_run(in_thread_free_rid, [rid, rd])
-
-static func in_thread_free_rid(texture_rid, rendering_device):
-	if texture_rid.is_valid():
-		rendering_device.free_rid(texture_rid)
+				mm_renderer.free_rid_in_thread(rid, rd)
 
 func get_texture_rid(target_rd : RenderingDevice) -> RID:
 	if ! rid.is_valid():
@@ -111,7 +107,7 @@ func set_texture(new_texture : ImageTexture) -> void:
 		texture_size = image.get_size()
 	if rid.is_valid():
 		# The rendering device only frees resources on its own thread
-		mm_renderer.thread_run(in_thread_free_rid, [rid, rd])
+		mm_renderer.free_rid_in_thread(rid, rd)
 	rid = RID()
 
 func get_width() -> int:
