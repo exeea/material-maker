@@ -70,16 +70,36 @@ by its first comment.
 | `list_nodes`, `describe_node` | Search the node library; parameters, inputs and outputs of a node |
 | `validate_graph` | Build a `.ptex` graph without opening it and report what Material Maker cannot create or connect |
 | `load_graph`, `new_graph`, `get_graph`, `save_graph`, `close_graph` | Open, create, read (compact or as full JSON), save and close projects |
-| `apply_edits` | Several edits (add, connect, disconnect, remove, set) in one call and one undo step |
+| `apply_edits` | Several edits (add, connect, disconnect, remove, set, and exposed parameters: add, update, rename, remove) in one call and one undo step |
 | `add_node`, `connect_nodes`, `disconnect_nodes`, `remove_node`, `set_parameters` | Single edits |
 | `render_node` | Render a node output, or a map of the Material node, as an image |
 | `render_preview`, `render_sweep` | Render the material lit on a sphere or a square, or tiled 3x3 to check seams; a contact sheet across values of one parameter |
 | `export_material` | Export the texture maps of a project or of a `.ptex` file |
 | `edit_files` | Apply the same edits to many `.ptex` files without opening them: values (also computed from each project's parameters), exposed parameters (add, rename, remove, kept consistent), comments and image paths; reports each file's changes and saves it in its own layout |
 | `list_examples` | Example projects, including a cookbook of 55 finished materials with recipe notes |
+| `quit` | Close a private instance (see below) |
 
 The server only accepts connections from this computer. Material Maker's window must stay open, because
 rendering uses the GPU.
+
+### Several agents at once
+
+One Material Maker runs one tool at a time, so agents sharing it wait for each other, and a tab one agent
+closes is gone for the others. `material_maker_mcp.py` (next to the executable in the Windows and Linux releases,
+Python 3 without other packages) starts private instances, each with its own port and settings folder, and calls
+their tools for a session that has no MCP registration for that port:
+
+```text
+python material_maker_mcp.py start 8791                  returns once the instance answers
+python material_maker_mcp.py 8791 --list                 its tools and their arguments
+python material_maker_mcp.py 8791 load_graph '{"path": "C:/my/graphs/rock.ptex"}'
+python material_maker_mcp.py stop 8791                   closes it, discarding unsaved changes
+```
+
+Tool results are printed, and images are written to PNG files whose paths are printed. A session started later can
+register the instance instead (`claude mcp add --transport http material-maker-8791 http://127.0.0.1:8791/mcp`).
+On Windows, `material_maker_mcp.cmd` starts the shared instance on port 8790. The first line of
+`material_maker_mcp.txt` next to them is added to every start, e.g. `--mcp-examples "C:\my\graphs"`.
 
 ## Translations
 

@@ -91,6 +91,7 @@ jobs:
           cp -R ./material_maker/meshes ./build/${EXPORT_NAME}_${MM_RELEASE}_windows
           cp -R ./material_maker/misc/export ./build/${EXPORT_NAME}_${MM_RELEASE}_windows
           cp -R ./material_maker/doc/_build/html ./build/${EXPORT_NAME}_${MM_RELEASE}_windows/doc || :
+          cp ./material_maker/misc/mcp/material_maker_mcp.cmd ./material_maker/misc/mcp/material_maker_mcp.py ./build/${EXPORT_NAME}_${MM_RELEASE}_windows
           cp -R ./addons/material_maker/nodes ./build/${EXPORT_NAME}_${MM_RELEASE}_linux
           cp -R ./material_maker/environments ./build/${EXPORT_NAME}_${MM_RELEASE}_linux
           cp -R ./material_maker/examples ./build/${EXPORT_NAME}_${MM_RELEASE}_linux
@@ -98,6 +99,7 @@ jobs:
           cp -R ./material_maker/meshes ./build/${EXPORT_NAME}_${MM_RELEASE}_linux
           cp -R ./material_maker/misc/export ./build/${EXPORT_NAME}_${MM_RELEASE}_linux
           cp -R ./material_maker/doc/_build/html ./build/${EXPORT_NAME}_${MM_RELEASE}_linux/doc || :
+          cp ./material_maker/misc/mcp/material_maker_mcp.py ./build/${EXPORT_NAME}_${MM_RELEASE}_linux
       - name: Create archives 📁
         run: |
           cd build

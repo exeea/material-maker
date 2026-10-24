@@ -81,7 +81,7 @@ const TOOLS : Array = [
 	},
 	{
 		"name": "apply_edits",
-		"description": "Applies several edits to a graph in order, as one undo step, and stops at the first that fails. Each edit has an op: add (node, name, parameters, title, text, x, y), connect or disconnect (from, from_port, to, to_port), remove (node) or set (node, parameters, title, text), with the arguments of add_node, connect_nodes, disconnect_nodes, remove_node and set_parameters. Later edits can use the names earlier add edits asked for. The tab shows the graph edited.",
+		"description": "Applies several edits to a graph in order, as one undo step, and stops at the first that fails. Each edit has an op: add (node, name, parameters, title, text, x, y), connect or disconnect (from, from_port, to, to_port), remove (node) or set (node, parameters, title, text), with the arguments of add_node, connect_nodes, disconnect_nodes, remove_node and set_parameters; or add_parameter, update_parameter, rename_parameter or remove_parameter on the graph's exposed parameters, with the arguments edit_files describes. Later edits can use the names earlier add edits asked for. The tab shows the graph edited.",
 		"inputSchema": { "type": "object", "required": [ "edits" ], "properties": {
 			"edits": { "type": "array", "items": { "type": "object" } },
 			"tab": TAB_ARGUMENT,
@@ -189,6 +189,11 @@ const TOOLS : Array = [
 			"files": { "type": "array", "items": { "type": "string" }, "description": ".ptex paths; * and ? match any characters, / included" },
 			"edits": { "type": "array", "items": { "type": "object" } },
 			"save": { "type": "boolean", "description": "Write the files; default false only reports" } } }
+	},
+	{
+		"name": "quit",
+		"description": "Closes this Material Maker, discarding unsaved changes. Only for an instance started with --mcp-port (e.g. by material_maker_mcp.py start <port>); the one started with --mcp is the user's.",
+		"inputSchema": { "type": "object", "properties": {} }
 	},
 	{
 		"name": "list_examples",
@@ -572,14 +577,15 @@ func run_edits(args : Dictionary, edits : Array):
 	# The editor edits the graph it shows: show that one, like the hierarchy panel does
 	if graph != graph_edit.generator:
 		graph_edit.edit_subgraph(graph)
-	var before : Dictionary = graph.serialize().duplicate(true)
+	# Edits can change the graphs around this one (exposed parameters), so the undo step covers the project.
+	# A copy: serialize() shares some data with the generators, e.g. a remote node's widgets.
+	var before : Dictionary = graph_edit.top_generator.serialize().duplicate(true)
 	var names : Dictionary = {}
-	var parameter_changes : Array = []
 	var results : Array = []
 	var failure : String = ""
 	for i in edits.size():
 		var edit : Dictionary = edits[i] if edits[i] is Dictionary else {}
-		var result = await apply_edit(graph_edit, edit, names, parameter_changes)
+		var result = await apply_edit(graph_edit, edit, names)
 		if result is String:
 			failure = result if edits.size() == 1 else "Edit %d (%s) failed: %s" % [ i, edit.get("op", ""), result ]
 			if i > 0:
@@ -587,37 +593,61 @@ func run_edits(args : Dictionary, edits : Array):
 			break
 		results.append(result)
 	if not results.is_empty():
-		add_undo_step(graph_edit, graph, before, parameter_changes)
+		var actions : Dictionary = step_actions(graph_edit, before, graph_edit.top_generator.serialize())
+		if not actions.undo.is_empty():
+			graph_edit.undoredo.add("MCP edits", actions.undo, actions.redo)
 		# Comment edits do not mark the project changed by themselves
 		graph_edit.set_need_save()
 	return failure if failure != "" else { applied=results.size(), results=results }
 
-# Material Maker's undo diff replaces a node whose parameters changed, which drops its connections. So
-# parameter changes are undone like the editor does it (setparams), and the diff only sees the rest.
-func add_undo_step(graph_edit : MMGraphEdit, graph : MMGenGraph, before : Dictionary, parameter_changes : Array) -> void:
+# Undo and redo actions from one state of a project's data to another. Material Maker's own diff replaces a
+# node whose parameters changed, which drops its connections, so parameter changes become setparams actions.
+static func step_actions(graph_edit : MMGraphEdit, prev : Dictionary, next : Dictionary) -> Dictionary:
+	prev = prev.duplicate(true)
 	var undo_parameters : Array = []
 	var redo_parameters : Array = []
-	for change in parameter_changes:
-		var previous : Array = before.nodes.filter(func(n): return n.name == change.node)
-		# A node these edits added is added back with its parameters
-		if previous.is_empty():
+	collect_parameter_changes(prev, next, "", undo_parameters, redo_parameters)
+	# The diff rewrites both graphs in place
+	var actions : Dictionary = graph_edit.undoredo_step_actions("", prev, next.duplicate(true))
+	return { undo=actions.get("undo_actions", []) + undo_parameters, redo=redo_parameters + actions.get("redo_actions", []) }
+
+# setparams actions for the nodes of a graph (subgraphs included) whose parameters are all that changed,
+# with prev updated so the diff no longer sees them. Remote nodes are left to the diff, which updates them whole.
+static func collect_parameter_changes(prev : Dictionary, next : Dictionary, prefix : String, undo : Array, redo : Array) -> void:
+	for n in next.get("nodes", []):
+		var found : Array = prev.get("nodes", []).filter(func(p): return p.name == n.name)
+		if found.is_empty() or found[0].get("type") != n.get("type") or n.get("type") == "remote":
 			continue
-		if not previous[0].has("parameters"):
-			previous[0].parameters = {}
-		previous[0].parameters.merge(change.new, true)
-		var path : String = change.node if graph.get_hier_name() == "" else graph.get_hier_name()+"/"+change.node
-		undo_parameters.push_front({ type="setparams", node=path, params=change.old })
-		redo_parameters.append({ type="setparams", node=path, params=change.new })
-	var actions : Dictionary = graph_edit.undoredo_step_actions(graph.get_hier_name(), before, graph.serialize())
-	var undo_actions : Array = actions.get("undo_actions", []) + undo_parameters
-	var redo_actions : Array = redo_parameters + actions.get("redo_actions", [])
-	if not undo_actions.is_empty():
-		graph_edit.undoredo.add("MCP edits", undo_actions, redo_actions)
+		var p : Dictionary = found[0]
+		if n.has("nodes"):
+			collect_parameter_changes(p, n, prefix+n.name+"/", undo, redo)
+		else:
+			var p_rest : Dictionary = p.duplicate()
+			var n_rest : Dictionary = n.duplicate()
+			p_rest.erase("parameters")
+			n_rest.erase("parameters")
+			if p_rest != n_rest:
+				continue
+		if not p.has("parameters"):
+			p.parameters = {}
+		var old : Dictionary = {}
+		var new : Dictionary = {}
+		for k in n.get("parameters", {}).keys():
+			if not p.parameters.has(k) or differs(p.parameters[k], n.parameters[k]):
+				new[k] = n.parameters[k]
+				# A parameter the edits added stays when undone; it no longer matches an exposed parameter
+				if p.parameters.has(k):
+					old[k] = p.parameters[k]
+		if new.is_empty():
+			continue
+		p.parameters.merge(new, true)
+		if not old.is_empty():
+			undo.push_front({ type="setparams", node=prefix+n.name, params=old })
+		redo.append({ type="setparams", node=prefix+n.name, params=new })
 
 # One edit, without an undo step of its own. names maps the names add edits asked for to the names
-# Material Maker gave them, so the edits that follow can use the names they asked for. Set edits add
-# { node, old, new } to parameter_changes.
-func apply_edit(graph_edit : MMGraphEdit, edit : Dictionary, names : Dictionary, parameter_changes : Array):
+# Material Maker gave them, so the edits that follow can use the names they asked for.
+func apply_edit(graph_edit : MMGraphEdit, edit : Dictionary, names : Dictionary):
 	var graph : MMGenGraph = graph_edit.generator
 	var node : String = names.get(str(edit.get("node", "")), str(edit.get("node", "")))
 	var from : String = names.get(str(edit.get("from", "")), str(edit.get("from", "")))
@@ -687,20 +717,35 @@ func apply_edit(graph_edit : MMGraphEdit, edit : Dictionary, names : Dictionary,
 						parameter_names.append(d.name)
 					return "%s has no parameter '%s' (it has: %s)" % [ node, p, ", ".join(parameter_names) ]
 			var result : Dictionary = { node=node, parameters={} }
-			var old : Dictionary = {}
 			for p in parameters.keys():
-				old[p] = MMType.serialize_value(generator.get_parameter(p))
 				generator.set_parameter(p, MMType.deserialize_value(parameters[p]))
 				result.parameters[p] = MMType.serialize_value(generator.get_parameter(p))
-			if not parameters.is_empty():
-				parameter_changes.append({ node=node, old=old, new=result.parameters })
 			for key in comment.keys():
 				generator.set(key, comment[key])
 				result[key] = comment[key]
 			if not comment.is_empty():
 				graph_edit.get_node(NodePath("node_"+node)).update_node()
 			return result
-	return "Unknown op '%s': use add, connect, disconnect, remove or set" % edit.get("op", "")
+		"add_parameter", "update_parameter", "rename_parameter", "remove_parameter":
+			return await apply_parameter_edit(graph_edit, edit)
+	return "Unknown op '%s': use add, connect, disconnect, remove, set, add_parameter, update_parameter, rename_parameter or remove_parameter" % edit.get("op", "")
+
+# Exposed-parameter edits use edit_files' operations on the project's data, and the differences reach the
+# open graph as editor commands
+func apply_parameter_edit(graph_edit : MMGraphEdit, edit : Dictionary):
+	var file = PtexFile.new()
+	file.data = graph_edit.top_generator.serialize().duplicate(true)
+	var current : Dictionary = file.data.duplicate(true)
+	var error : String = file.apply(edit.merged({ subgraph=graph_edit.generator.get_hier_name() }, true))
+	if error != "":
+		return error
+	for check in file.checks:
+		var node = graph_edit.top_generator.get_node_or_null(NodePath(check.node))
+		if not node is MMGenBase or node.get_parameter_def(check.parameter).is_empty():
+			return "%s has no parameter '%s'" % [ check.node, check.parameter ]
+	for action in step_actions(graph_edit, current, file.data).redo:
+		await graph_edit.undoredo_command(action)
+	return { changes=file.changes }
 
 func tool_render_node(args : Dictionary):
 	var graph_edit = target_graph_edit(args)
@@ -1026,6 +1071,17 @@ func open_project_paths() -> PackedStringArray:
 		if graph_edit != null and graph_edit.save_path != "":
 			paths.append(graph_edit.save_path.replace("\\", "/").to_lower())
 	return paths
+
+func tool_quit(_args : Dictionary):
+	var args : PackedStringArray = OS.get_cmdline_args()
+	args.append_array(OS.get_cmdline_user_args())
+	if not args.has("--mcp-port"):
+		return "This Material Maker was started with --mcp, as the user's: only instances started with --mcp-port can be closed"
+	# Once this reply is sent. Closing the tabs removes their recovery files, so the next start asks nothing.
+	get_tree().create_timer(0.5).timeout.connect(func():
+		await mm_renderer.stop_rendering_thread()
+		get_tree().quit())
+	return { quitting=true }
 
 func tool_list_examples(args : Dictionary):
 	var directories : PackedStringArray = [ MMPaths.get_examples_dir() ]
