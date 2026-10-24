@@ -9,7 +9,7 @@ const NO_WINDOW : String = "The Material Maker window is not ready"
 const NO_GRAPH : String = "No graph is open in Material Maker"
 
 const INSTRUCTIONS : String = """Material Maker builds procedural PBR materials from node graphs.
-These tools work on the graph shown in the current Material Maker tab: the user sees every edit live and can undo it.
+These tools work on a Material Maker tab, live: the user sees every edit and can undo it. load_graph, new_graph and get_graph return the tab's handle; pass it as tab to stay on that tab when the user or another agent switches tabs. Graphs can hold subgraphs (get_graph counts their nodes): pass subgraph, the node names from the top level joined by '/', to read, edit or render inside one, "" for the top level. By default tools use the current tab and the graph it shows.
 Find nodes with list_nodes, read their parameters and ports with describe_node, then build with apply_edits (or add_node, connect_nodes and set_parameters), or load a whole graph (the .ptex JSON format) with load_graph. Close tabs you no longer need with close_graph.
 Check outputs with render_node, judge the material lit and tiled with render_preview, compare parameter values with render_sweep, and write texture maps with export_material. Node names are the names used in graph JSON, ports count from 0.
 Examples, including a cookbook of finished materials, are listed by list_examples."""
@@ -18,6 +18,8 @@ const GRAPH_ARGUMENTS : Dictionary = {
 	"graph": { "type": "object", "description": "A graph in Material Maker's .ptex JSON format" },
 	"path": { "type": "string", "description": "Path of a .ptex file (used instead of graph)" }
 }
+const TAB_ARGUMENT : Dictionary = { "type": "integer", "description": "Handle of the tab to work on, from load_graph, new_graph or get_graph; default the current tab" }
+const SUBGRAPH_ARGUMENT : Dictionary = { "type": "string", "description": "Subgraph to work in: node names from the top level joined by '/', \"\" for the top level; default the graph the tab shows" }
 
 const TOOLS : Array = [
 	{
@@ -39,77 +41,94 @@ const TOOLS : Array = [
 	},
 	{
 		"name": "load_graph",
-		"description": "Opens a graph in Material Maker, in a new tab unless replace is true.",
+		"description": "Opens a graph in Material Maker, in a new tab unless replace is true, and returns the tab's handle.",
 		"inputSchema": { "type": "object", "properties": {
 			"graph": GRAPH_ARGUMENTS.graph,
 			"path": GRAPH_ARGUMENTS.path,
-			"replace": { "type": "boolean", "description": "Replace the graph of the current tab once it has finished rendering (refused when it has unsaved changes)" } } }
+			"replace": { "type": "boolean", "description": "Replace the graph of a tab once it has finished rendering (refused when it has unsaved changes)" },
+			"tab": TAB_ARGUMENT } }
 	},
 	{
 		"name": "new_graph",
-		"description": "Opens a new tab with an empty material.",
+		"description": "Opens a new tab with an empty material and returns the tab's handle.",
 		"inputSchema": { "type": "object", "properties": {} }
 	},
 	{
 		"name": "get_graph",
-		"description": "The graph shown in the current tab: each node's type, its parameters that differ from their defaults and its comments, and the connections, with the file path and the material's export targets. full returns the .ptex JSON instead.",
+		"description": "A tab's graph, or one of its subgraphs: each node's type, its parameters that differ from their defaults and its comments, and the connections, with the tab's handle, the subgraph path, the file path and the material's export targets. full returns the .ptex JSON instead.",
 		"inputSchema": { "type": "object", "properties": {
-			"full": { "type": "boolean", "description": "Return the whole graph in .ptex JSON format" } } }
+			"full": { "type": "boolean", "description": "Return the whole graph in .ptex JSON format" },
+			"tab": TAB_ARGUMENT,
+			"subgraph": SUBGRAPH_ARGUMENT } }
 	},
 	{
 		"name": "save_graph",
-		"description": "Saves the current tab's project as a .ptex file.",
+		"description": "Saves a tab's project as a .ptex file.",
 		"inputSchema": { "type": "object", "properties": {
-			"path": { "type": "string", "description": "File to save to; defaults to the tab's current file" } } }
+			"path": { "type": "string", "description": "File to save to; defaults to the tab's current file" },
+			"tab": TAB_ARGUMENT } }
 	},
 	{
 		"name": "close_graph",
-		"description": "Closes the current tab, once its renders are done. Refused when it has unsaved changes, unless discard is true.",
+		"description": "Closes a tab, once its renders are done. Refused when it has unsaved changes, unless discard is true.",
 		"inputSchema": { "type": "object", "properties": {
-			"discard": { "type": "boolean", "description": "Close even with unsaved changes" } } }
+			"discard": { "type": "boolean", "description": "Close even with unsaved changes" },
+			"tab": TAB_ARGUMENT } }
 	},
 	{
 		"name": "apply_edits",
-		"description": "Applies several edits to the current graph in order, as one undo step, and stops at the first that fails. Each edit has an op: add (node, name, parameters, x, y), connect or disconnect (from, from_port, to, to_port), remove (node) or set (node, parameters), with the arguments of add_node, connect_nodes, disconnect_nodes, remove_node and set_parameters. Later edits can use the names earlier add edits asked for.",
+		"description": "Applies several edits to a graph in order, as one undo step, and stops at the first that fails. Each edit has an op: add (node, name, parameters, x, y), connect or disconnect (from, from_port, to, to_port), remove (node) or set (node, parameters), with the arguments of add_node, connect_nodes, disconnect_nodes, remove_node and set_parameters. Later edits can use the names earlier add edits asked for. The tab shows the graph edited.",
 		"inputSchema": { "type": "object", "required": [ "edits" ], "properties": {
-			"edits": { "type": "array", "items": { "type": "object" } } } }
+			"edits": { "type": "array", "items": { "type": "object" } },
+			"tab": TAB_ARGUMENT,
+			"subgraph": SUBGRAPH_ARGUMENT } }
 	},
 	{
 		"name": "add_node",
-		"description": "Adds a node to the current graph and returns its name.",
+		"description": "Adds a node to a graph and returns its name.",
 		"inputSchema": { "type": "object", "required": [ "node" ], "properties": {
 			"node": { "type": "string", "description": "A node type or a library item" },
 			"name": { "type": "string", "description": "Name for the new node; Material Maker adds a number if it is taken" },
 			"parameters": { "type": "object", "description": "Parameter values, see describe_node" },
 			"x": { "type": "number" },
-			"y": { "type": "number" } } }
+			"y": { "type": "number" },
+			"tab": TAB_ARGUMENT,
+			"subgraph": SUBGRAPH_ARGUMENT } }
 	},
 	{
 		"name": "connect_nodes",
 		"description": "Connects an output of a node to an input of another, replacing what was connected to that input.",
 		"inputSchema": { "type": "object", "required": [ "from", "from_port", "to", "to_port" ], "properties": {
 			"from": { "type": "string" }, "from_port": { "type": "integer" },
-			"to": { "type": "string" }, "to_port": { "type": "integer" } } }
+			"to": { "type": "string" }, "to_port": { "type": "integer" },
+			"tab": TAB_ARGUMENT,
+			"subgraph": SUBGRAPH_ARGUMENT } }
 	},
 	{
 		"name": "disconnect_nodes",
 		"description": "Removes a connection.",
 		"inputSchema": { "type": "object", "required": [ "from", "from_port", "to", "to_port" ], "properties": {
 			"from": { "type": "string" }, "from_port": { "type": "integer" },
-			"to": { "type": "string" }, "to_port": { "type": "integer" } } }
+			"to": { "type": "string" }, "to_port": { "type": "integer" },
+			"tab": TAB_ARGUMENT,
+			"subgraph": SUBGRAPH_ARGUMENT } }
 	},
 	{
 		"name": "remove_node",
 		"description": "Deletes a node and its connections.",
 		"inputSchema": { "type": "object", "required": [ "node" ], "properties": {
-			"node": { "type": "string" } } }
+			"node": { "type": "string" },
+			"tab": TAB_ARGUMENT,
+			"subgraph": SUBGRAPH_ARGUMENT } }
 	},
 	{
 		"name": "set_parameters",
 		"description": "Sets parameters of a node. Colors are {\"type\": \"Color\", \"r\": 1, \"g\": 0, \"b\": 0, \"a\": 1}; enums take the index of the value.",
 		"inputSchema": { "type": "object", "required": [ "node", "parameters" ], "properties": {
 			"node": { "type": "string" },
-			"parameters": { "type": "object" } } }
+			"parameters": { "type": "object" },
+			"tab": TAB_ARGUMENT,
+			"subgraph": SUBGRAPH_ARGUMENT } }
 	},
 	{
 		"name": "render_node",
@@ -118,15 +137,18 @@ const TOOLS : Array = [
 			"node": { "type": "string" },
 			"port": { "type": "integer", "description": "Output index, default 0" },
 			"size": { "type": "integer", "description": "Edge length in pixels, default 512" },
-			"path": { "type": "string", "description": "PNG file to save the render to" } } }
+			"path": { "type": "string", "description": "PNG file to save the render to" },
+			"tab": TAB_ARGUMENT,
+			"subgraph": SUBGRAPH_ARGUMENT } }
 	},
 	{
 		"name": "render_preview",
-		"description": "Renders the current tab's material lit like the 3D preview: on a sphere, on a square seen at an angle (one repeat), or tiled 3x3 seen from above to check seams and repetition. Returns the image (up to 1024 pixels) and can save it as PNG.",
+		"description": "Renders a tab's material lit like the 3D preview: on a sphere, on a square seen at an angle (one repeat), or tiled 3x3 seen from above to check seams and repetition. Returns the image (up to 1024 pixels) and can save it as PNG.",
 		"inputSchema": { "type": "object", "properties": {
 			"view": { "type": "string", "enum": [ "sphere", "plane", "tiled" ], "description": "Default sphere" },
 			"size": { "type": "integer", "description": "Edge length in pixels, default 512" },
-			"path": { "type": "string", "description": "PNG file to save the render to" } } }
+			"path": { "type": "string", "description": "PNG file to save the render to" },
+			"tab": TAB_ARGUMENT } }
 	},
 	{
 		"name": "render_sweep",
@@ -138,16 +160,19 @@ const TOOLS : Array = [
 			"view": { "type": "string", "enum": [ "output", "sphere", "plane", "tiled" ], "description": "What each cell shows, default output (the node's output)" },
 			"port": { "type": "integer", "description": "Output index for the output view, default 0" },
 			"size": { "type": "integer", "description": "Edge length of each cell in pixels, default 256" },
-			"path": { "type": "string", "description": "PNG file to save the sheet to" } } }
+			"path": { "type": "string", "description": "PNG file to save the sheet to" },
+			"tab": TAB_ARGUMENT,
+			"subgraph": SUBGRAPH_ARGUMENT } }
 	},
 	{
 		"name": "export_material",
-		"description": "Exports the texture maps of the current project, or of a .ptex file, like File > Export. Returns the files written.",
+		"description": "Exports the texture maps of a tab's project, or of a .ptex file, like File > Export. Returns the files written.",
 		"inputSchema": { "type": "object", "required": [ "path" ], "properties": {
 			"path": { "type": "string", "description": "Path prefix of the files, e.g. C:/out/rock writes rock_albedo.png and so on" },
 			"target": { "type": "string", "description": "Export target, default 'Godot/Godot 4 Standard' (see get_graph)" },
 			"size": { "type": "integer", "description": "Edge length in pixels; default is the material's Size" },
-			"graph_path": { "type": "string", "description": "Export this .ptex file instead of the current project" } } }
+			"graph_path": { "type": "string", "description": "Export this .ptex file instead of a tab's project" },
+			"tab": TAB_ARGUMENT } }
 	},
 	{
 		"name": "list_examples",
@@ -176,13 +201,51 @@ static func error_result(message : String) -> Dictionary:
 
 # Helpers
 
-func get_graph_edit() -> MMGraphEdit:
-	if mm_globals.main_window == null:
-		return null
-	return mm_globals.main_window.get_current_graph_edit()
+var next_tab : int = 1
 
-func find_node(graph_edit : MMGraphEdit, node_name) -> MMGenBase:
-	return graph_edit.generator.get_node_or_null(NodePath(str(node_name)))
+# The graph editor of the tab a tool works on: the tab with the handle given as "tab", else the
+# current tab; or an error message
+func target_graph_edit(args : Dictionary):
+	if mm_globals.main_window == null:
+		return NO_WINDOW
+	if args.get("tab") == null:
+		var graph_edit : MMGraphEdit = mm_globals.main_window.get_current_graph_edit()
+		return graph_edit if graph_edit != null and graph_edit.top_generator != null else NO_GRAPH
+	var projects = mm_globals.main_window.projects_panel.get_projects()
+	for i in projects.get_tab_count():
+		var graph_edit : MMGraphEdit = tab_graph_edit(projects, i)
+		if graph_edit != null and graph_edit.get_meta("mcp_tab", 0) == int(args.tab):
+			return graph_edit
+	return "No open tab has the handle %d" % int(args.tab)
+
+static func tab_graph_edit(projects, index : int) -> MMGraphEdit:
+	var control : Control = projects.get_tab(index)
+	return control.get_graph_edit() if control.has_method("get_graph_edit") else null
+
+# A tab's handle: a number that stays the same while the tab is open
+func tab_handle(graph_edit : MMGraphEdit) -> int:
+	if not graph_edit.has_meta("mcp_tab"):
+		graph_edit.set_meta("mcp_tab", next_tab)
+		next_tab += 1
+	return graph_edit.get_meta("mcp_tab")
+
+# The graph a tool works on in a tab: the subgraph path given as "subgraph" (node names from the
+# top level joined by "/", "" for the top level), else the graph the tab shows; or an error message
+static func target_graph(graph_edit : MMGraphEdit, args : Dictionary):
+	if args.get("subgraph") == null:
+		return graph_edit.generator
+	var graph = graph_edit.get_node_from_hier_name(str(args.subgraph))
+	if graph is MMGenGraph and (graph == graph_edit.top_generator or graph_edit.top_generator.is_ancestor_of(graph)):
+		return graph
+	return "No subgraph '%s'" % args.subgraph
+
+# The node named "node" in the graph a tool works on, or an error message
+static func target_node(graph_edit : MMGraphEdit, args : Dictionary):
+	var graph = target_graph(graph_edit, args)
+	if graph is String:
+		return graph
+	var generator = graph.get_node_or_null(NodePath(str(args.get("node", ""))))
+	return generator if generator is MMGenBase else "No node named '%s'" % args.get("node", "")
 
 # Generator data for a node type or a library item
 func node_data(node : String) -> Dictionary:
@@ -338,10 +401,12 @@ func tool_load_graph(args : Dictionary):
 	var main_window = mm_globals.main_window
 	if main_window == null:
 		return NO_WINDOW
-	var graph_edit : MMGraphEdit = get_graph_edit()
-	var replace : bool = args.get("replace", false) and graph_edit != null
+	var replace : bool = args.get("replace", false)
+	var graph_edit = target_graph_edit(args) if replace else null
+	if graph_edit is String:
+		return graph_edit
 	if replace and graph_edit.need_save:
-		return "The current tab has unsaved changes: save it, or load the graph without replace"
+		return "The tab has unsaved changes: save it, or load the graph without replace"
 	# Wait before building the new graph, whose buffers only render once it is attached
 	if replace:
 		await mm_deps.wait_for_render_queue()
@@ -354,27 +419,30 @@ func tool_load_graph(args : Dictionary):
 		graph_edit = main_window.new_graph_panel()
 	graph_edit.set_save_path(args.path if args.get("path") is String else "")
 	graph_edit.set_new_generator(built.generator)
-	main_window.hierarchy.update_from_graph_edit(graph_edit)
+	if graph_edit == main_window.get_current_graph_edit():
+		main_window.hierarchy.update_from_graph_edit(graph_edit)
 	if main_window.current_mesh != null:
 		built.generator.set_current_mesh(main_window.current_mesh)
 	var nodes : Array = []
 	for n in built.generator.get_children():
 		nodes.append(n.name)
-	return { loaded=graph_edit.save_path if graph_edit.save_path != "" else "graph", nodes=nodes, problems=graph_problems(built.data, built.generator) }
+	return { tab=tab_handle(graph_edit), loaded=graph_edit.save_path if graph_edit.save_path != "" else "graph", nodes=nodes, problems=graph_problems(built.data, built.generator) }
 
 func tool_new_graph(_args : Dictionary):
 	if mm_globals.main_window == null:
 		return NO_WINDOW
 	mm_globals.main_window.new_material()
 	await get_tree().process_frame
-	return { created=true }
+	return { created=true, tab=tab_handle(mm_globals.main_window.get_current_graph_edit()) }
 
 func tool_get_graph(args : Dictionary):
-	var graph_edit : MMGraphEdit = get_graph_edit()
-	if graph_edit == null or graph_edit.generator == null:
-		return NO_GRAPH
-	var graph : MMGenGraph = graph_edit.generator
-	var result : Dictionary = { path=graph_edit.save_path, unsaved=graph_edit.need_save }
+	var graph_edit = target_graph_edit(args)
+	if graph_edit is String:
+		return graph_edit
+	var graph = target_graph(graph_edit, args)
+	if graph is String:
+		return graph
+	var result : Dictionary = { tab=tab_handle(graph_edit), subgraph=graph.get_hier_name(), path=graph_edit.save_path, unsaved=graph_edit.need_save }
 	if args.get("full", false):
 		result.graph = graph.serialize()
 	else:
@@ -383,8 +451,6 @@ func tool_get_graph(args : Dictionary):
 		for c in graph.connections:
 			connections.append("%s:%d -> %s:%d" % [ c.from, c.from_port, c.to, c.to_port ])
 		result.connections = connections
-	if graph != graph_edit.top_generator:
-		result.subgraph = graph.get_hier_name()
 	var material : MMGenMaterial = graph_edit.get_material_node()
 	if material != null:
 		result.export_targets = material.get_export_profiles()
@@ -402,19 +468,26 @@ static func compact_nodes(graph : MMGenGraph) -> Array:
 		var parameters : Dictionary = {}
 		for definition in generator.get_parameter_defs():
 			var value = MMType.serialize_value(generator.get_parameter(definition.name))
-			if not definition.has("default") or value != MMType.serialize_value(MMType.deserialize_value(definition.default)):
+			if not definition.has("default") or differs(value, MMType.serialize_value(MMType.deserialize_value(definition.default))):
 				parameters[definition.name] = value
 		if not parameters.is_empty():
 			node.parameters = parameters
 		if generator is MMGenGraph:
+			node.label = generator.label
 			node.nodes = generator.get_child_count()
 		nodes.append(node)
 	return nodes
 
+# != fails on values of different types, e.g. a float parameter that holds an expression string
+static func differs(a, b) -> bool:
+	if (a is int or a is float) and (b is int or b is float):
+		return a != b
+	return typeof(a) != typeof(b) or a != b
+
 func tool_save_graph(args : Dictionary):
-	var graph_edit : MMGraphEdit = get_graph_edit()
-	if graph_edit == null or graph_edit.top_generator == null:
-		return NO_GRAPH
+	var graph_edit = target_graph_edit(args)
+	if graph_edit is String:
+		return graph_edit
 	var path : String = str(args.get("path", graph_edit.save_path))
 	if path == "":
 		return "This project has no file yet: pass a path"
@@ -425,11 +498,11 @@ func tool_save_graph(args : Dictionary):
 	return { saved=path }
 
 func tool_close_graph(args : Dictionary):
-	var graph_edit : MMGraphEdit = get_graph_edit()
-	if graph_edit == null:
-		return NO_GRAPH
+	var graph_edit = target_graph_edit(args)
+	if graph_edit is String:
+		return graph_edit
 	if graph_edit.need_save and not args.get("discard", false):
-		return "The current tab has unsaved changes: save it, or pass discard"
+		return "The tab has unsaved changes: save it, or pass discard"
 	# Closing frees the graph: none of its renders may still be running
 	await mm_deps.wait_for_render_queue()
 	await wait_for_render_thread_idle()
@@ -437,13 +510,20 @@ func tool_close_graph(args : Dictionary):
 		graph_edit.remove_crash_recovery_file()
 	var closed : String = graph_edit.save_path
 	var projects = mm_globals.main_window.projects_panel.get_projects()
-	projects.do_close_tab(projects.current_tab)
+	var current : Control = projects.get_current_tab_control()
+	for i in projects.get_tab_count():
+		if tab_graph_edit(projects, i) == graph_edit:
+			projects.do_close_tab(i)
+			break
+	# Closing a tab shows the first one: keep showing the tab that was shown
+	if is_instance_valid(current):
+		projects.current_tab = current.get_index()
 	return { closed=closed if closed != "" else "graph", open_tabs=projects.get_tab_count() }
 
 func tool_apply_edits(args : Dictionary):
 	if not args.get("edits") is Array or args.edits.is_empty():
 		return "Pass a list of edits"
-	return await run_edits(args.edits)
+	return await run_edits(args, args.edits)
 
 func tool_add_node(args : Dictionary):
 	return await run_edit(args.merged({ op="add" }))
@@ -461,15 +541,20 @@ func tool_set_parameters(args : Dictionary):
 	return await run_edit(args.merged({ op="set" }))
 
 func run_edit(edit : Dictionary):
-	var result = await run_edits([ edit ])
+	var result = await run_edits(edit, [ edit ])
 	return result if result is String else result.results[0]
 
-# Applies edits to the graph shown in the current tab as one undo step, stopping at the first that fails
-func run_edits(edits : Array):
-	var graph_edit : MMGraphEdit = get_graph_edit()
-	if graph_edit == null or graph_edit.generator == null:
-		return NO_GRAPH
-	var graph : MMGenGraph = graph_edit.generator
+# Applies edits to the graph the tool works on (see target_graph) as one undo step, stopping at the first that fails
+func run_edits(args : Dictionary, edits : Array):
+	var graph_edit = target_graph_edit(args)
+	if graph_edit is String:
+		return graph_edit
+	var graph = target_graph(graph_edit, args)
+	if graph is String:
+		return graph
+	# The editor edits the graph it shows: show that one, like the hierarchy panel does
+	if graph != graph_edit.generator:
+		graph_edit.edit_subgraph(graph)
 	var before : Dictionary = graph.serialize().duplicate(true)
 	var names : Dictionary = {}
 	var results : Array = []
@@ -556,12 +641,12 @@ func apply_edit(graph_edit : MMGraphEdit, edit : Dictionary, names : Dictionary)
 	return "Unknown op '%s': use add, connect, disconnect, remove or set" % edit.get("op", "")
 
 func tool_render_node(args : Dictionary):
-	var graph_edit : MMGraphEdit = get_graph_edit()
-	if graph_edit == null or graph_edit.generator == null:
-		return NO_GRAPH
-	var generator : MMGenBase = find_node(graph_edit, args.get("node", ""))
-	if generator == null:
-		return "No node named '%s'" % args.get("node", "")
+	var graph_edit = target_graph_edit(args)
+	if graph_edit is String:
+		return graph_edit
+	var generator = target_node(graph_edit, args)
+	if generator is String:
+		return generator
 	var port : int = int(args.get("port", 0))
 	var problem : String = output_problem(generator, port)
 	if problem != "":
@@ -571,12 +656,12 @@ func tool_render_node(args : Dictionary):
 	return image_result(image, args, { node=args.node, port=port, size=size })
 
 func tool_render_preview(args : Dictionary):
-	var graph_edit : MMGraphEdit = get_graph_edit()
-	if graph_edit == null or graph_edit.top_generator == null:
-		return NO_GRAPH
+	var graph_edit = target_graph_edit(args)
+	if graph_edit is String:
+		return graph_edit
 	var material : MMGenMaterial = graph_edit.get_material_node()
 	if material == null:
-		return "The current graph has no material"
+		return "The graph has no material"
 	var view : String = str(args.get("view", "sphere"))
 	if not view in PREVIEW_VIEWS:
 		return "view must be one of: "+", ".join(PackedStringArray(PREVIEW_VIEWS))
@@ -585,12 +670,12 @@ func tool_render_preview(args : Dictionary):
 	return image_result(image, args, { view=view, size=size })
 
 func tool_render_sweep(args : Dictionary):
-	var graph_edit : MMGraphEdit = get_graph_edit()
-	if graph_edit == null or graph_edit.generator == null:
-		return NO_GRAPH
-	var generator : MMGenBase = find_node(graph_edit, args.get("node", ""))
-	if generator == null:
-		return "No node named '%s'" % args.get("node", "")
+	var graph_edit = target_graph_edit(args)
+	if graph_edit is String:
+		return graph_edit
+	var generator = target_node(graph_edit, args)
+	if generator is String:
+		return generator
 	var parameter : String = str(args.get("parameter", ""))
 	if generator.get_parameter_def(parameter).is_empty():
 		return "%s has no parameter '%s'" % [ args.node, parameter ]
@@ -607,7 +692,7 @@ func tool_render_sweep(args : Dictionary):
 	elif not view in PREVIEW_VIEWS:
 		return "view must be output or one of: "+", ".join(PackedStringArray(PREVIEW_VIEWS))
 	elif material == null:
-		return "The current graph has no material"
+		return "The graph has no material"
 	var size : int = clampi(int(args.get("size", 256)), 16, 1024)
 	var original = MMType.serialize_value(generator.get_parameter(parameter))
 	var images : Array[Image] = []
@@ -752,9 +837,9 @@ func tool_export_material(args : Dictionary):
 			return "Cannot load "+args.graph_path
 		add_child(generator)
 	else:
-		var graph_edit : MMGraphEdit = get_graph_edit()
-		if graph_edit == null or graph_edit.top_generator == null:
-			return NO_GRAPH
+		var graph_edit = target_graph_edit(args)
+		if graph_edit is String:
+			return graph_edit
 		generator = graph_edit.top_generator
 	DirAccess.make_dir_recursive_absolute(prefix.get_base_dir())
 	var start : int = int(Time.get_unix_time_from_system())
