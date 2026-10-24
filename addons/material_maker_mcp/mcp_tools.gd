@@ -184,11 +184,12 @@ const TOOLS : Array = [
 	},
 	{
 		"name": "edit_files",
-		"description": "Applies the same edits to .ptex files without opening them, and reports per file what changed, problems the edits caused and missing images. Saves only with save, each file in its own layout, and never a file open in a tab. Each edit has an op and a subgraph path (default top level): set (node, parameters, title, text; a value can be {\"expression\": \"value * RepeatMetres\"}, where value is the current value, the parameters of the graph's remote nodes are variables, and parameter(\"Sub/node\", \"name\") reads any other); add_parameter (node: a remote node, default gen_parameters; name, label, and either min, max, step, default, value for a named parameter used as $name in expressions, or links: [{node, parameter}] for a control of other nodes' parameters); update_parameter (node, name, label, min, max, step, default); rename_parameter (node, name, new_name: also changes $name in expressions, the subgraph's value and the controls linked to it); remove_parameter (node, name; refused while expressions use it); relink (from, to: replaced in image node paths).",
+		"description": "Applies the same edits to .ptex files without opening them, and reports per file what changed, problems the edits caused and missing images. Saves only with save, each file in its own layout, and never a file open in a tab. Each edit has an op and a subgraph path (default top level): set (node, parameters, title, text; a value can be {\"expression\": \"value * RepeatMetres\"}, where value is the current value, the parameters of the graph's remote nodes are variables, and parameter(\"Sub/node\", \"name\") reads any other); add_parameter (node: a remote node, default gen_parameters; name, label, and either min, max, step, default, value for a named parameter used as $name in expressions, or links: [{node, parameter}] for a control of other nodes' parameters); update_parameter (node, name, label, min, max, step, default); rename_parameter (node, name, new_name: also changes $name in expressions, the subgraph's value and the controls linked to it); remove_parameter (node, name; refused while expressions use it); for these three, node defaults to the remote node that has the parameter; relink (from, to: replaced in image node paths); rename_graph (name: the graph's own name and label, default the file's name). A value within 1e-9 (relative) of the old one keeps the old one, so values computed again do not change files.",
 		"inputSchema": { "type": "object", "required": [ "files", "edits" ], "properties": {
 			"files": { "type": "array", "items": { "type": "string" }, "description": ".ptex paths; * and ? match any characters, / included" },
 			"edits": { "type": "array", "items": { "type": "object" } },
-			"save": { "type": "boolean", "description": "Write the files; default false only reports" } } }
+			"save": { "type": "boolean", "description": "Write the files; default false only reports. A file whose edits fail is not saved; the others are." },
+			"skip_missing": { "type": "boolean", "description": "Skip files that lack a subgraph, node or parameter the edits name, instead of reporting them as errors" } } }
 	},
 	{
 		"name": "quit",
@@ -972,8 +973,11 @@ func tool_edit_files(args : Dictionary):
 	var open_paths : PackedStringArray = open_project_paths()
 	var reports : Array = []
 	var saved : int = 0
+	var skipped : int = 0
 	for path in paths:
-		var report : Dictionary = await edit_file(path, args.edits)
+		var report : Dictionary = await edit_file(path, args.edits, args.get("skip_missing", false))
+		if report.has("skipped"):
+			skipped += 1
 		var file = report.get("file")
 		report.erase("file")
 		if file != null and args.get("save", false) and not file.changes.is_empty():
@@ -989,11 +993,11 @@ func tool_edit_files(args : Dictionary):
 				else:
 					report.error = error
 		reports.append(report)
-	return { files=reports, saved=saved }
+	return { files=reports, saved=saved, skipped=skipped }
 
 # Applies edits to one .ptex file's data: a report with path, changes and the problems the edits caused,
 # and the edited file (unsaved) unless an edit failed
-func edit_file(path : String, edits : Array) -> Dictionary:
+func edit_file(path : String, edits : Array, skip_missing : bool) -> Dictionary:
 	var file = PtexFile.new()
 	var report : Dictionary = { path=path }
 	var error : String = file.read(path)
@@ -1005,7 +1009,8 @@ func edit_file(path : String, edits : Array) -> Dictionary:
 		var edit : Dictionary = edits[i] if edits[i] is Dictionary else {}
 		error = file.apply(edit)
 		if error != "":
-			report.error = error if edits.size() == 1 else "Edit %d (%s): %s" % [ i, edit.get("op", ""), error ]
+			error = error if edits.size() == 1 else "Edit %d (%s): %s" % [ i, edit.get("op", ""), error ]
+			report["skipped" if skip_missing and file.missing else "error"] = error
 			return report
 	report.changes = file.changes
 	var problems : PackedStringArray = []

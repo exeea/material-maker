@@ -12,6 +12,11 @@ var literals : Dictionary
 var changes : PackedStringArray = []
 # Parameters the edits used, to check once Material Maker has built the edited graph: { node, parameter }
 var checks : Array = []
+# Whether the last error is about something this file does not have (a subgraph, node or parameter)
+var missing : bool = false
+
+# Names an expression can use besides variables and functions
+const EXPRESSION_WORDS : PackedStringArray = [ "PI", "TAU", "INF", "NAN", "true", "false", "null", "and", "or", "not", "in" ]
 
 func read(file_path : String) -> String:
 	path = file_path
@@ -50,6 +55,7 @@ func apply(edit : Dictionary) -> String:
 	var subgraph : String = str(edit.get("subgraph", ""))
 	var graph = graph_at(subgraph)
 	if graph == null:
+		missing = true
 		return "No subgraph '%s'" % subgraph
 	match edit.get("op"):
 		"set":
@@ -64,12 +70,15 @@ func apply(edit : Dictionary) -> String:
 			return rename_parameter(graph, subgraph, edit, "")
 		"relink":
 			return relink(str(edit.get("from", "")), str(edit.get("to", "")))
-	return "Unknown op '%s': use set, add_parameter, update_parameter, rename_parameter, remove_parameter or relink" % edit.get("op", "")
+		"rename_graph":
+			return rename_graph(str(edit.get("name", path.get_file().get_basename())))
+	return "Unknown op '%s': use set, add_parameter, update_parameter, rename_parameter, remove_parameter, relink or rename_graph" % edit.get("op", "")
 
 func set_values(graph : Dictionary, subgraph : String, edit : Dictionary) -> String:
 	var name : String = str(edit.get("node", ""))
 	var node = find_node(graph, name)
 	if node == null:
+		missing = true
 		return "No node named '%s'" % name
 	var label : String = node_path(subgraph, name)
 	var parameters = edit.get("parameters", {})
@@ -92,7 +101,7 @@ func set_values(graph : Dictionary, subgraph : String, edit : Dictionary) -> Str
 		assign(graph, node, p, value)
 		checks.append({ node=label, parameter=p })
 		if typeof(old) != typeof(node.parameters[p]) or old != node.parameters[p]:
-			changes.append("%s %s: %s -> %s" % [ label, p, JSON.stringify(old), JSON.stringify(node.parameters[p]) ])
+			changes.append("%s %s: %s -> %s" % [ label, p, shown(old), shown(node.parameters[p]) ])
 	return ""
 
 # Sets a parameter and, like Material Maker at run time, its copies: a subgraph's value is also its
@@ -126,6 +135,16 @@ func evaluate(expression : String, value, graph : Dictionary) -> Dictionary:
 				if not k in names:
 					names.append(k)
 					values.append(n.parameters[k])
+	# Godot would report an unknown name as an invalid index of the context object
+	var unknown : PackedStringArray = []
+	var without_strings : String = RegEx.create_from_string("\"[^\"]*\"|'[^']*'").sub(expression, "", true)
+	for m in RegEx.create_from_string("(?<![\\w.])([A-Za-z_]\\w*)\\b(?!\\s*[(.])").search_all(without_strings):
+		var word : String = m.get_string(1)
+		if not word in names and not word in EXPRESSION_WORDS and not word in unknown:
+			unknown.append(word)
+	if not unknown.is_empty():
+		missing = true
+		return { error="%s: no such parameter in this graph's remote nodes (they have: %s)" % [ ", ".join(unknown), ", ".join(names.slice(1)) ] }
 	var e : Expression = Expression.new()
 	if e.parse(expression, names) != OK:
 		return { error="cannot read '%s': %s" % [ expression, e.get_error_text() ] }
@@ -150,6 +169,7 @@ func add_parameter(graph : Dictionary, subgraph : String, edit : Dictionary) -> 
 		remote = { name="gen_parameters", type="remote", parameters={}, widgets=[] }
 		graph.nodes.append(remote)
 	if remote == null or remote.get("type") != "remote":
+		missing = remote == null
 		return "No remote node named '%s'" % remote_name
 	var name : String = str(edit.get("name", ""))
 	if RegEx.create_from_string("^\\w+$").search(name) == null:
@@ -188,34 +208,59 @@ func add_parameter(graph : Dictionary, subgraph : String, edit : Dictionary) -> 
 		if not graph.has("parameters"):
 			graph.parameters = {}
 		graph.parameters[name] = value
-	changes.append("%s: added %s %s = %s" % [ node_path(subgraph, remote_name), w.type, name, JSON.stringify(value) ])
+	changes.append("%s: added %s %s = %s" % [ node_path(subgraph, remote_name), w.type, name, shown(value) ])
 	return ""
 
+# The remote node a parameter edit works on: the one given as node, else the one of the graph that has the
+# parameter; or an error message
+func parameter_node(graph : Dictionary, subgraph : String, edit : Dictionary, name : String):
+	if edit.has("node"):
+		var remote = find_node(graph, str(edit.node))
+		if remote == null or remote.get("type") != "remote":
+			missing = remote == null
+			return "No remote node named '%s'" % edit.node
+		if find_widget(remote, name) == null:
+			missing = true
+			return "%s has no parameter '%s' (it has: %s)" % [ node_path(subgraph, remote.name), name, ", ".join(widget_names(remote)) ]
+		return remote
+	var holders : Array = []
+	var names : PackedStringArray = []
+	for n in graph.nodes:
+		if n is Dictionary and n.get("type") == "remote":
+			names.append_array(widget_names(n))
+			if find_widget(n, name) != null:
+				holders.append(n)
+	if holders.is_empty():
+		missing = true
+		return "No remote node of %s has a parameter '%s' (they have: %s)" % [ subgraph if subgraph != "" else "the top level", name, ", ".join(names) ]
+	if holders.size() > 1:
+		return "'%s' is a parameter of %s: pass node" % [ name, " and ".join(PackedStringArray(holders.map(func(h): return h.name))) ]
+	return holders[0]
+
 func update_parameter(graph : Dictionary, subgraph : String, edit : Dictionary) -> String:
-	var remote_name : String = str(edit.get("node", "gen_parameters"))
-	var remote = find_node(graph, remote_name)
-	var w = find_widget(remote, str(edit.get("name", ""))) if remote != null else null
-	if w == null:
-		return "%s has no parameter '%s'" % [ node_path(subgraph, remote_name), edit.get("name", "") ]
+	var remote = parameter_node(graph, subgraph, edit, str(edit.get("name", "")))
+	if remote is String:
+		return remote
+	var w = find_widget(remote, str(edit.get("name", "")))
 	for key in [ "label", "min", "max", "step", "default" ]:
 		if edit.has(key):
 			if key != "label" and w.type != "named_parameter":
 				return "Only named parameters have min, max, step and default"
 			var old = w.get(key)
 			w[key] = str(edit[key]) if key == "label" else like(old, edit[key])
-			changes.append("%s %s %s: %s -> %s" % [ node_path(subgraph, remote_name), w.name, key, JSON.stringify(old), JSON.stringify(w[key]) ])
+			changes.append("%s %s %s: %s -> %s" % [ node_path(subgraph, remote.name), w.name, key, shown(old), shown(w[key]) ])
 	return ""
 
 # Renames an exposed parameter, or removes it when new_name is "": in the remote node, the expressions of
 # its graph ($name), and for gen_parameters also the subgraph node and the controls linked to it
 func rename_parameter(graph : Dictionary, subgraph : String, edit : Dictionary, new_name : String) -> String:
-	var remote_name : String = str(edit.get("node", "gen_parameters"))
-	var remote = find_node(graph, remote_name)
 	var name : String = str(edit.get("name", ""))
-	var w = find_widget(remote, name) if remote != null else null
+	var remote = parameter_node(graph, subgraph, edit, name)
+	if remote is String:
+		return remote
+	var remote_name : String = remote.name
+	var w = find_widget(remote, name)
 	var label : String = node_path(subgraph, remote_name)
-	if w == null:
-		return "%s has no parameter '%s'" % [ label, name ]
 	var removing : bool = new_name == ""
 	if not removing and RegEx.create_from_string("^\\w+$").search(new_name) == null:
 		return "A parameter name uses letters, digits and _"
@@ -246,10 +291,16 @@ func rename_parameter(graph : Dictionary, subgraph : String, edit : Dictionary, 
 		else:
 			rename_key(graph.get("parameters", {}), name, new_name)
 		links = rename_links(graph_at(subgraph.get_base_dir()), graph.name, name, new_name)
-	if removing:
-		changes.append("%s: removed %s (%d links)" % [ label, name, links ])
+	var change : String = ("%s: removed %s" % [ label, name ]) if removing else ("%s: renamed %s to %s" % [ label, name, new_name ])
+	if w.type == "named_parameter":
+		change += " (%d expressions, %d links)" % [ expression_users.size(), links ]
 	else:
-		changes.append("%s: renamed %s to %s (%d expressions, %d links)" % [ label, name, new_name, expression_users.size(), links ])
+		# A control is not used by name: what it controls stays as it is
+		var controlled : PackedStringArray = []
+		for l in w.get("linked_widgets", []):
+			controlled.append("%s.%s" % [ l.node, l.widget ])
+		change += ", which %s %s" % [ "controlled" if removing else "still controls", ", ".join(controlled) ]
+	changes.append(change)
 	return ""
 
 # Renames the links of the controls in a graph to a parameter of one of its nodes, or removes them when
@@ -285,6 +336,16 @@ func relink(from : String, to : String) -> String:
 			var old : String = parameters.image
 			parameters.image = old.replace(from, to)
 			changes.append("%s image: %s -> %s" % [ image.path, old, parameters.image ])
+	return ""
+
+# The graph's own name, and its label when that only repeated the name (a label can describe the material)
+func rename_graph(name : String) -> String:
+	var old : String = str(data.get("name", ""))
+	if old != name:
+		if data.get("label") == old:
+			data.label = name
+		data.name = name
+		changes.append("graph name: %s -> %s" % [ old, name ])
 	return ""
 
 func missing_images() -> PackedStringArray:
@@ -336,11 +397,25 @@ static func find_widget(remote : Dictionary, name : String):
 static func node_path(subgraph : String, name : String) -> String:
 	return name if subgraph == "" else subgraph+"/"+name
 
-# A new value, as an int when it replaces an int and is a whole number, so the file keeps its style
+# A new value in the file's style: the old value when they differ by less than 1e-9 (relative), so a value
+# computed again does not change the file, and an int when it replaces an int with a whole number
 static func like(old, value):
-	if old is int and value is float and value == floorf(value):
-		return int(value)
+	if (old is int or old is float) and (value is int or value is float):
+		if absf(value-old) <= 1e-9*maxf(absf(old), absf(value)):
+			return old
+		if old is int and value is float and value == floorf(value):
+			return int(value)
 	return value
+
+# A value for the report, floats in full: JSON.stringify keeps about 12 digits
+func shown(value) -> String:
+	return literals.get(value, var_to_str(value)) if value is float else JSON.stringify(value)
+
+static func widget_names(remote : Dictionary) -> PackedStringArray:
+	var names : PackedStringArray = []
+	for w in remote.get("widgets", []):
+		names.append(str(w.get("name", "")))
+	return names
 
 # Renames a key in place, keeping the order of the keys
 static func rename_key(d : Dictionary, old : String, new : String) -> void:
