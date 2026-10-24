@@ -342,14 +342,13 @@ func _notification(what: int) -> void:
 ## Annotate remotely-linked parameter controls for
 ## ease of drawing links back to the remote.
 func annotate_linked_controls(p : String, is_setup : bool) -> void:
-	var cleanup_callback : Callable = func(c : Control) -> void:
-			c.remove_meta("linked_parameters")
-			setup_linked_control_callbacks(c, false)
-
 	var widget : Dictionary = generator.get_widget(p)
 	if not widget.is_empty() and widget.type == "linked_control":
 		for w in widget.linked_widgets:
-			var node : GraphNode = get_parent().get_node(NodePath("node_" + w.node))
+			var node : GraphNode = get_parent().get_node_or_null(NodePath("node_" + w.node))
+			# A link can point at a parameter that is not there yet, e.g. halfway through an undo
+			if node == null or not node.controls.has(w.widget):
+				continue
 			var control : Control = node.controls[w.widget]
 			var linked_params : Array[Dictionary]
 
@@ -359,13 +358,19 @@ func annotate_linked_controls(p : String, is_setup : bool) -> void:
 				linked_params.append({ "remote": self, "param": widget.name })
 				control.set_meta("linked_parameters", linked_params)
 				setup_linked_control_callbacks(control, true)
-				if not tree_exiting.is_connected(cleanup_callback.bind(control)):
-					tree_exiting.connect(cleanup_callback.bind(control))
+				if not tree_exiting.is_connected(cleanup_linked_control.bind(control)):
+					tree_exiting.connect(cleanup_linked_control.bind(control))
 			else:
-				control.remove_meta("linked_parameters")
-				setup_linked_control_callbacks(control, false)
-				if tree_exiting.is_connected(cleanup_callback.bind(control)):
-					tree_exiting.disconnect(cleanup_callback.bind(control))
+				cleanup_linked_control(control)
+				if tree_exiting.is_connected(cleanup_linked_control.bind(control)):
+					tree_exiting.disconnect(cleanup_linked_control.bind(control))
+
+# A method rather than a lambda, so is_connected recognizes it. The control can belong to a node that was
+# freed first, e.g. when the graph view is cleared.
+func cleanup_linked_control(c) -> void:
+	if is_instance_valid(c):
+		c.remove_meta("linked_parameters")
+		setup_linked_control_callbacks(c, false)
 
 ## Draw link(s) from [param linked_control] to linked remote parameter control(s).
 static func on_linked_control_entered(linked_control : Control) -> void:
