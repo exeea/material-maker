@@ -313,15 +313,18 @@ func rename_links(graph : Dictionary, node_name : String, name : String, new_nam
 		for w in remote.get("widgets", []).duplicate():
 			var lists : Array = [ w.get("linked_widgets", []) ]
 			lists.append_array(w.get("configurations", {}).values())
+			var unlinked : bool = false
 			for list in lists:
 				for l in list.duplicate():
 					if l.get("node") == node_name and l.get("widget") == name:
 						count += 1
 						if new_name == "":
 							list.erase(l)
+							unlinked = true
 						else:
 							l.widget = new_name
-			if new_name == "" and w.has("linked_widgets") and w.linked_widgets.is_empty():
+			# Only a control that lost its last link here; one that had no links is not about this parameter
+			if unlinked and w.has("linked_widgets") and w.linked_widgets.is_empty():
 				remote.widgets.erase(w)
 				remote.get("parameters", {}).erase(w.name)
 				changes.append("%s: removed %s, which only controlled that parameter" % [ remote.name, w.name ])
