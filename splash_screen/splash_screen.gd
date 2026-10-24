@@ -2,13 +2,10 @@ extends MarginContainer
 
 
 var resource_path : String
-var tween : Tween
 var background_index : int
 var background_subindex : int
 var delay_start : bool = false
 var mm_scene : PackedScene = null
-
-@onready var progress_bar = $SplashScreen/TextureRect/ProgressBar
 
 
 const BACKGROUNDS_DIR : String = "res://splash_screen/backgrounds/"
@@ -173,23 +170,12 @@ func set_screen(bi : int, sub_index = -1) -> void:
 			%Title.gui_input.disconnect(c.callable)
 
 func _ready():
-	set_process(false)
-
 	resource_path = "res://material_maker/main_window.tscn"
 	
 	await get_tree().process_frame
 	
 	var locale = load("res://material_maker/locale/locale.gd").new()
 	locale.read_translations()
-	
-	# TODO: enable threaded loading
-	if false:
-		start_ui(ResourceLoader.load(resource_path))
-	elif ResourceLoader.load_threaded_request(resource_path) == OK: # check for errors
-		print("Loading...")
-		set_process(true)
-	else:
-		print("Error loading "+resource_path)
 	
 	if mm_steam.is_owned():
 		%SteamIcon.texture = await mm_steam.get_avatar_texture()
@@ -203,6 +189,11 @@ func _ready():
 		%SteamIcon/SteamMessage1.text = greeting_message % mm_steam.get_user_name()
 		%SteamIcon/SteamMessage2.text = ACTIVITY_MESSAGES[randi_range(0, ACTIVITY_MESSAGES.size()-1)]
 		%SteamIcon.visible = true
+	
+	# Loaded on this thread: a threaded load deadlocked about one start in 20, a loader thread compiling
+	# a script while waiting for a preload that another loader thread waited to compile
+	print("Loading...")
+	start_ui(ResourceLoader.load(resource_path))
 
 func start_ui(scene : PackedScene):
 	if delay_start:
@@ -223,32 +214,6 @@ func do_start_ui(scene : PackedScene):
 		await dialog.ask()
 	
 	get_tree().change_scene_to_packed(scene)
-
-var wait : float = 0.0
-func _process(delta) -> void:
-	wait += delta
-	if wait < 0.01:
-		return
-	wait = 0.0
-	var percent : Array = []
-	var status = ResourceLoader.load_threaded_get_status(resource_path, percent)
-	match status:
-		ResourceLoader.THREAD_LOAD_IN_PROGRESS:
-			var new_progress_value : float = percent[0]*100.0
-			if tween:
-				tween.kill()
-			tween = get_tree().create_tween()
-			tween.tween_property(progress_bar, "value", new_progress_value, 0.5).set_trans(Tween.TRANS_LINEAR)
-		ResourceLoader.THREAD_LOAD_LOADED:
-			set_process(false)
-			if tween:
-				tween.kill()
-			tween = get_tree().create_tween()
-			tween.tween_property(progress_bar, "value", 100.0, 1.0).set_trans(Tween.TRANS_LINEAR)
-			tween.tween_callback(self.start_ui.bind(ResourceLoader.load_threaded_get(resource_path)))
-		_:
-			print("error "+str(status))
-			set_process(false)
 
 func _on_secret_button_gui_input(event):
 	if event is InputEventMouseButton and event.pressed:
