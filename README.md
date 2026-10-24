@@ -59,14 +59,17 @@ Then add `http://127.0.0.1:8790/mcp` to your agent as a Streamable HTTP server, 
 claude mcp add --transport http material-maker http://127.0.0.1:8790/mcp
 ```
 
-The agent works on the graph shown in the current tab: you see every change live and can undo it.
+The agent works on the graph shown in the current tab: you see every change live and can undo it. Add
+`--mcp-examples <folder>` (repeatable) to also list a project's own `.ptex` graphs in `list_examples`, each described
+by its first comment.
 
 | Tool | What it does |
 |---|---|
 | `list_nodes`, `describe_node` | Search the node library; parameters, inputs and outputs of a node |
 | `validate_graph` | Build a `.ptex` graph without opening it and report what Material Maker cannot create or connect |
-| `load_graph`, `new_graph`, `get_graph`, `save_graph` | Open, create, read and save projects |
-| `add_node`, `connect_nodes`, `disconnect_nodes`, `remove_node`, `set_parameters` | Edit the current graph |
+| `load_graph`, `new_graph`, `get_graph`, `save_graph`, `close_graph` | Open, create, read (compact or as full JSON), save and close projects |
+| `apply_edits` | Several edits (add, connect, disconnect, remove, set) in one call and one undo step |
+| `add_node`, `connect_nodes`, `disconnect_nodes`, `remove_node`, `set_parameters` | Single edits of the current graph |
 | `render_node` | Render a node output, or a map of the Material node, as an image |
 | `render_preview`, `render_sweep` | Render the material lit on a sphere or a square, or tiled 3x3 to check seams; a contact sheet across values of one parameter |
 | `export_material` | Export the texture maps of the current project or of a `.ptex` file |

@@ -10,7 +10,7 @@ const NO_GRAPH : String = "No graph is open in Material Maker"
 
 const INSTRUCTIONS : String = """Material Maker builds procedural PBR materials from node graphs.
 These tools work on the graph shown in the current Material Maker tab: the user sees every edit live and can undo it.
-Find nodes with list_nodes, read their parameters and ports with describe_node, then build with add_node, connect_nodes and set_parameters, or load a whole graph (the .ptex JSON format) with load_graph.
+Find nodes with list_nodes, read their parameters and ports with describe_node, then build with apply_edits (or add_node, connect_nodes and set_parameters), or load a whole graph (the .ptex JSON format) with load_graph. Close tabs you no longer need with close_graph.
 Check outputs with render_node, judge the material lit and tiled with render_preview, compare parameter values with render_sweep, and write texture maps with export_material. Node names are the names used in graph JSON, ports count from 0.
 Examples, including a cookbook of finished materials, are listed by list_examples."""
 
@@ -52,14 +52,27 @@ const TOOLS : Array = [
 	},
 	{
 		"name": "get_graph",
-		"description": "The graph shown in the current tab, in .ptex JSON format, with its file path and the material's export targets.",
-		"inputSchema": { "type": "object", "properties": {} }
+		"description": "The graph shown in the current tab: each node's type, its parameters that differ from their defaults and its comments, and the connections, with the file path and the material's export targets. full returns the .ptex JSON instead.",
+		"inputSchema": { "type": "object", "properties": {
+			"full": { "type": "boolean", "description": "Return the whole graph in .ptex JSON format" } } }
 	},
 	{
 		"name": "save_graph",
 		"description": "Saves the current tab's project as a .ptex file.",
 		"inputSchema": { "type": "object", "properties": {
 			"path": { "type": "string", "description": "File to save to; defaults to the tab's current file" } } }
+	},
+	{
+		"name": "close_graph",
+		"description": "Closes the current tab, once its renders are done. Refused when it has unsaved changes, unless discard is true.",
+		"inputSchema": { "type": "object", "properties": {
+			"discard": { "type": "boolean", "description": "Close even with unsaved changes" } } }
+	},
+	{
+		"name": "apply_edits",
+		"description": "Applies several edits to the current graph in order, as one undo step, and stops at the first that fails. Each edit has an op: add (node, name, parameters, x, y), connect or disconnect (from, from_port, to, to_port), remove (node) or set (node, parameters), with the arguments of add_node, connect_nodes, disconnect_nodes, remove_node and set_parameters. Later edits can use the names earlier add edits asked for.",
+		"inputSchema": { "type": "object", "required": [ "edits" ], "properties": {
+			"edits": { "type": "array", "items": { "type": "object" } } } }
 	},
 	{
 		"name": "add_node",
@@ -138,8 +151,9 @@ const TOOLS : Array = [
 	},
 	{
 		"name": "list_examples",
-		"description": "Example projects shipped with Material Maker, including a cookbook of finished materials with recipe notes. Open one with load_graph.",
-		"inputSchema": { "type": "object", "properties": {} }
+		"description": "Example projects shipped with Material Maker, including a cookbook of finished materials with recipe notes, and the project graphs of folders given with --mcp-examples. Open one with load_graph.",
+		"inputSchema": { "type": "object", "properties": {
+			"filter": { "type": "string", "description": "Only examples whose name, category or description contains this text" } } }
 	}
 ]
 
@@ -355,17 +369,47 @@ func tool_new_graph(_args : Dictionary):
 	await get_tree().process_frame
 	return { created=true }
 
-func tool_get_graph(_args : Dictionary):
+func tool_get_graph(args : Dictionary):
 	var graph_edit : MMGraphEdit = get_graph_edit()
 	if graph_edit == null or graph_edit.generator == null:
 		return NO_GRAPH
-	var result : Dictionary = { graph=graph_edit.generator.serialize(), path=graph_edit.save_path, unsaved=graph_edit.need_save }
-	if graph_edit.generator != graph_edit.top_generator:
-		result.subgraph = graph_edit.generator.get_hier_name()
+	var graph : MMGenGraph = graph_edit.generator
+	var result : Dictionary = { path=graph_edit.save_path, unsaved=graph_edit.need_save }
+	if args.get("full", false):
+		result.graph = graph.serialize()
+	else:
+		result.nodes = compact_nodes(graph)
+		var connections : PackedStringArray = []
+		for c in graph.connections:
+			connections.append("%s:%d -> %s:%d" % [ c.from, c.from_port, c.to, c.to_port ])
+		result.connections = connections
+	if graph != graph_edit.top_generator:
+		result.subgraph = graph.get_hier_name()
 	var material : MMGenMaterial = graph_edit.get_material_node()
 	if material != null:
 		result.export_targets = material.get_export_profiles()
 	return result
+
+# Each node's type and the parameters that differ from their defaults; comments with their text
+static func compact_nodes(graph : MMGenGraph) -> Array:
+	var nodes : Array = []
+	for generator in graph.get_children():
+		if not generator is MMGenBase:
+			continue
+		var node : Dictionary = { name=generator.name, type=generator.model if generator.model != null else generator.get_type() }
+		if generator is MMGenComment:
+			node.text = generator.text
+		var parameters : Dictionary = {}
+		for definition in generator.get_parameter_defs():
+			var value = MMType.serialize_value(generator.get_parameter(definition.name))
+			if not definition.has("default") or value != MMType.serialize_value(MMType.deserialize_value(definition.default)):
+				parameters[definition.name] = value
+		if not parameters.is_empty():
+			node.parameters = parameters
+		if generator is MMGenGraph:
+			node.nodes = generator.get_child_count()
+		nodes.append(node)
+	return nodes
 
 func tool_save_graph(args : Dictionary):
 	var graph_edit : MMGraphEdit = get_graph_edit()
@@ -380,82 +424,136 @@ func tool_save_graph(args : Dictionary):
 		return "Could not save "+path
 	return { saved=path }
 
-func tool_add_node(args : Dictionary):
+func tool_close_graph(args : Dictionary):
 	var graph_edit : MMGraphEdit = get_graph_edit()
-	if graph_edit == null or graph_edit.generator == null:
+	if graph_edit == null:
 		return NO_GRAPH
-	var data : Dictionary = node_data(str(args.get("node", "")))
-	if args.get("name") is String:
-		data.name = args.name
-	if args.get("parameters") is Dictionary:
-		var parameters : Dictionary = data.get("parameters", {})
-		parameters.merge(args.parameters, true)
-		data.parameters = parameters
-	var nodes : Array = await graph_edit.create_nodes(data, Vector2(float(args.get("x", 0)), float(args.get("y", 0))))
-	if nodes.is_empty():
-		return "Material Maker cannot create a node from '%s'" % args.get("node", "")
-	var names : Array = []
-	for n in nodes:
-		names.append(n.generator.name)
-	return { created=names }
+	if graph_edit.need_save and not args.get("discard", false):
+		return "The current tab has unsaved changes: save it, or pass discard"
+	# Closing frees the graph: none of its renders may still be running
+	await mm_deps.wait_for_render_queue()
+	await wait_for_render_thread_idle()
+	if graph_edit.need_save:
+		graph_edit.remove_crash_recovery_file()
+	var closed : String = graph_edit.save_path
+	var projects = mm_globals.main_window.projects_panel.get_projects()
+	projects.do_close_tab(projects.current_tab)
+	return { closed=closed if closed != "" else "graph", open_tabs=projects.get_tab_count() }
+
+func tool_apply_edits(args : Dictionary):
+	if not args.get("edits") is Array or args.edits.is_empty():
+		return "Pass a list of edits"
+	return await run_edits(args.edits)
+
+func tool_add_node(args : Dictionary):
+	return await run_edit(args.merged({ op="add" }))
 
 func tool_connect_nodes(args : Dictionary):
-	var graph_edit : MMGraphEdit = get_graph_edit()
-	if graph_edit == null or graph_edit.generator == null:
-		return NO_GRAPH
-	var from_port : int = int(args.get("from_port", 0))
-	var to_port : int = int(args.get("to_port", 0))
-	var problem : String = connection_problem(graph_edit.generator, args.get("from"), from_port, args.get("to"), to_port)
-	if problem != "":
-		return problem
-	graph_edit.on_connect_node("node_"+str(args.from), from_port, "node_"+str(args.to), to_port)
-	if not has_connection(graph_edit.generator, args.from, from_port, args.to, to_port):
-		return "Material Maker refused the connection (it would create a loop)"
-	return { connected=true }
+	return await run_edit(args.merged({ op="connect" }))
 
 func tool_disconnect_nodes(args : Dictionary):
-	var graph_edit : MMGraphEdit = get_graph_edit()
-	if graph_edit == null or graph_edit.generator == null:
-		return NO_GRAPH
-	var from_port : int = int(args.get("from_port", 0))
-	var to_port : int = int(args.get("to_port", 0))
-	if not has_connection(graph_edit.generator, args.get("from"), from_port, args.get("to"), to_port):
-		return "There is no such connection"
-	graph_edit.on_disconnect_node("node_"+str(args.from), from_port, "node_"+str(args.to), to_port)
-	return { disconnected=true }
+	return await run_edit(args.merged({ op="disconnect" }))
 
 func tool_remove_node(args : Dictionary):
-	var graph_edit : MMGraphEdit = get_graph_edit()
-	if graph_edit == null or graph_edit.generator == null:
-		return NO_GRAPH
-	var graph_node = graph_edit.get_node_or_null(NodePath("node_"+str(args.get("node", ""))))
-	if graph_node == null:
-		return "No node named '%s'" % args.get("node", "")
-	if not graph_node.generator.can_be_deleted():
-		return "'%s' cannot be deleted" % args.node
-	graph_edit.remove_node(graph_node)
-	return { removed=args.node }
+	return await run_edit(args.merged({ op="remove" }))
 
 func tool_set_parameters(args : Dictionary):
+	return await run_edit(args.merged({ op="set" }))
+
+func run_edit(edit : Dictionary):
+	var result = await run_edits([ edit ])
+	return result if result is String else result.results[0]
+
+# Applies edits to the graph shown in the current tab as one undo step, stopping at the first that fails
+func run_edits(edits : Array):
 	var graph_edit : MMGraphEdit = get_graph_edit()
 	if graph_edit == null or graph_edit.generator == null:
 		return NO_GRAPH
-	var generator : MMGenBase = find_node(graph_edit, args.get("node", ""))
-	if generator == null:
-		return "No node named '%s'" % args.get("node", "")
-	if not args.get("parameters") is Dictionary:
-		return "Pass the parameters as an object"
-	for p in args.parameters.keys():
-		if generator.get_parameter_def(p).is_empty():
-			var names : PackedStringArray = []
-			for d in generator.get_parameter_defs():
-				names.append(d.name)
-			return "%s has no parameter '%s' (it has: %s)" % [ args.node, p, ", ".join(names) ]
-	graph_edit.set_node_parameters(generator, args.parameters)
-	var values : Dictionary = {}
-	for p in args.parameters.keys():
-		values[p] = MMType.serialize_value(generator.get_parameter(p))
-	return { node=args.node, parameters=values }
+	var graph : MMGenGraph = graph_edit.generator
+	var before : Dictionary = graph.serialize().duplicate(true)
+	var names : Dictionary = {}
+	var results : Array = []
+	var failure : String = ""
+	for i in edits.size():
+		var edit : Dictionary = edits[i] if edits[i] is Dictionary else {}
+		var result = await apply_edit(graph_edit, edit, names)
+		if result is String:
+			failure = result if edits.size() == 1 else "Edit %d (%s) failed: %s" % [ i, edit.get("op", ""), result ]
+			if i > 0:
+				failure += ". The %d edits before it were applied, as one undo step." % i
+			break
+		results.append(result)
+	if not results.is_empty():
+		graph_edit.undoredo_create_step("MCP edits", graph.get_hier_name(), before, graph.serialize())
+	return failure if failure != "" else { applied=results.size(), results=results }
+
+# One edit, without an undo step of its own. names maps the names add edits asked for to the names
+# Material Maker gave them, so the edits that follow can use the names they asked for.
+func apply_edit(graph_edit : MMGraphEdit, edit : Dictionary, names : Dictionary):
+	var graph : MMGenGraph = graph_edit.generator
+	var node : String = names.get(str(edit.get("node", "")), str(edit.get("node", "")))
+	var from : String = names.get(str(edit.get("from", "")), str(edit.get("from", "")))
+	var to : String = names.get(str(edit.get("to", "")), str(edit.get("to", "")))
+	var from_port : int = int(edit.get("from_port", 0))
+	var to_port : int = int(edit.get("to_port", 0))
+	var connection : String = "%s:%d -> %s:%d" % [ from, from_port, to, to_port ]
+	match edit.get("op"):
+		"add":
+			var data : Dictionary = node_data(str(edit.get("node", "")))
+			if edit.get("name") is String:
+				data.name = edit.name
+			if edit.get("parameters") is Dictionary:
+				var parameters : Dictionary = data.get("parameters", {})
+				parameters.merge(edit.parameters, true)
+				data.parameters = parameters
+			var nodes : Array = await graph_edit.do_create_nodes(data, Vector2(float(edit.get("x", 0)), float(edit.get("y", 0))))
+			if nodes.is_empty():
+				return "Material Maker cannot create a node from '%s'" % edit.get("node", "")
+			if edit.get("name") is String:
+				names[edit.name] = nodes[0].generator.name
+			return { created=nodes[0].generator.name }
+		"connect":
+			var problem : String = connection_problem(graph, from, from_port, to, to_port)
+			if problem != "":
+				return problem
+			var replaced : Dictionary = graph_edit.get_source("node_"+to, to_port)
+			if not graph_edit.do_connect_node("node_"+from, from_port, "node_"+to, to_port):
+				return "Material Maker refused the connection (it would create a loop)"
+			# Like the editor, the new connection replaces the one into that input
+			if not replaced.is_empty():
+				graph_edit.disconnect_node(replaced.node, replaced.slot, "node_"+to, to_port)
+			return { connected=connection }
+		"disconnect":
+			if not has_connection(graph, from, from_port, to, to_port):
+				return "There is no connection "+connection
+			graph_edit.do_disconnect_node("node_"+from, from_port, "node_"+to, to_port)
+			return { disconnected=connection }
+		"remove":
+			var graph_node = graph_edit.get_node_or_null(NodePath("node_"+node))
+			if graph_node == null:
+				return "No node named '%s'" % node
+			if not graph_node.generator.can_be_deleted():
+				return "'%s' cannot be deleted" % node
+			graph_edit.do_remove_node(graph_node)
+			return { removed=node }
+		"set":
+			var generator : MMGenBase = graph.get_node_or_null(NodePath(node))
+			if generator == null:
+				return "No node named '%s'" % node
+			if not edit.get("parameters") is Dictionary:
+				return "Pass the parameters as an object"
+			for p in edit.parameters.keys():
+				if generator.get_parameter_def(p).is_empty():
+					var parameter_names : PackedStringArray = []
+					for d in generator.get_parameter_defs():
+						parameter_names.append(d.name)
+					return "%s has no parameter '%s' (it has: %s)" % [ node, p, ", ".join(parameter_names) ]
+			var values : Dictionary = {}
+			for p in edit.parameters.keys():
+				generator.set_parameter(p, MMType.deserialize_value(edit.parameters[p]))
+				values[p] = MMType.serialize_value(generator.get_parameter(p))
+			return { node=node, parameters=values }
+	return "Unknown op '%s': use add, connect, disconnect, remove or set" % edit.get("op", "")
 
 func tool_render_node(args : Dictionary):
 	var graph_edit : MMGraphEdit = get_graph_edit()
@@ -673,11 +771,26 @@ func tool_export_material(args : Dictionary):
 			files.append(directory.path_join(f))
 	return { exported=exported, files=files }
 
-func tool_list_examples(_args : Dictionary):
-	var directory : String = MMPaths.get_examples_dir()
+func tool_list_examples(args : Dictionary):
+	var directories : PackedStringArray = [ MMPaths.get_examples_dir() ]
+	directories.append_array(project_example_dirs())
 	var examples : Array = []
-	collect_examples(directory, "", examples)
-	return { directory=directory, examples=examples }
+	for directory in directories:
+		collect_examples(directory, "" if directory == directories[0] else directory.get_file(), examples)
+	var filter : String = str(args.get("filter", "")).to_lower()
+	if filter != "":
+		examples = examples.filter(func(e): return filter in ("%s %s %s" % [ e.name, e.get("category", ""), e.get("description", "") ]).to_lower())
+	return { directories=directories, examples=examples }
+
+# Folders of project graphs listed beside the shipped examples: --mcp-examples <folder>, repeatable
+static func project_example_dirs() -> PackedStringArray:
+	var args : PackedStringArray = OS.get_cmdline_args()
+	args.append_array(OS.get_cmdline_user_args())
+	var directories : PackedStringArray = []
+	for i in args.size()-1:
+		if args[i] == "--mcp-examples":
+			directories.append(args[i+1].replace("\\", "/"))
+	return directories
 
 func collect_examples(directory : String, category : String, examples : Array) -> void:
 	for f in DirAccess.get_files_at(directory):
@@ -686,12 +799,25 @@ func collect_examples(directory : String, category : String, examples : Array) -
 		var example : Dictionary = { name=f.get_basename(), path=directory.path_join(f) }
 		if category != "":
 			example.category = category
-		# Cookbook materials come with a recipe card titled "# <name> - <description>"
-		var card : String = directory.path_join(f.get_basename()+".md")
+		var description : String = example_description(example.path)
+		if description != "":
+			example.description = description
+		var card : String = example.path.get_basename()+".md"
 		if FileAccess.file_exists(card):
 			example.recipe = card
-			var title : String = FileAccess.get_file_as_string(card).get_slice("\n", 0).trim_prefix("# ").strip_edges()
-			example.description = title.get_slice(" - ", 1) if title.contains(" - ") else title
 		examples.append(example)
 	for d in DirAccess.get_directories_at(directory):
 		collect_examples(directory.path_join(d), category.path_join(d) if category != "" else d, examples)
+
+# The title of a cookbook recipe card ("# <name> - <description>"), else the start of the graph's first comment
+static func example_description(path : String) -> String:
+	var card : String = path.get_basename()+".md"
+	if FileAccess.file_exists(card):
+		var title : String = FileAccess.get_file_as_string(card).get_slice("\n", 0).trim_prefix("# ").strip_edges()
+		return title.get_slice(" - ", 1) if title.contains(" - ") else title
+	var graph : Dictionary = MMLoader.string_to_dict_tree(FileAccess.get_file_as_string(path))
+	for node in graph.get("nodes", []):
+		if node is Dictionary and node.get("type") == "comment" and node.get("text", "") != "":
+			var text : String = node.text.get_slice("\n", 0).strip_edges()
+			return text.left(240)+"..." if text.length() > 240 else text
+	return ""
