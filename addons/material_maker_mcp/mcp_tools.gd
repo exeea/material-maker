@@ -19,7 +19,9 @@ const GRAPH_ARGUMENTS : Dictionary = {
 	"path": { "type": "string", "description": "Path of a .ptex file (used instead of graph)" }
 }
 const TAB_ARGUMENT : Dictionary = { "type": "integer", "description": "Handle of the tab to work on, from load_graph, new_graph or get_graph; default the current tab" }
-const SUBGRAPH_ARGUMENT : Dictionary = { "type": "string", "description": "Subgraph to work in: node names from the top level joined by '/', \"\" for the top level; default the graph the tab shows" }
+const COMMENT_TITLE_ARGUMENT : Dictionary = { "type": "string", "description": "Title of a comment node" }
+const COMMENT_TEXT_ARGUMENT : Dictionary = { "type": "string", "description": "Text of a comment node" }
+const SUBGRAPH_ARGUMENT : Dictionary ={ "type": "string", "description": "Subgraph to work in: node names from the top level joined by '/', \"\" for the top level; default the graph the tab shows" }
 
 const TOOLS : Array = [
 	{
@@ -77,7 +79,7 @@ const TOOLS : Array = [
 	},
 	{
 		"name": "apply_edits",
-		"description": "Applies several edits to a graph in order, as one undo step, and stops at the first that fails. Each edit has an op: add (node, name, parameters, x, y), connect or disconnect (from, from_port, to, to_port), remove (node) or set (node, parameters), with the arguments of add_node, connect_nodes, disconnect_nodes, remove_node and set_parameters. Later edits can use the names earlier add edits asked for. The tab shows the graph edited.",
+		"description": "Applies several edits to a graph in order, as one undo step, and stops at the first that fails. Each edit has an op: add (node, name, parameters, title, text, x, y), connect or disconnect (from, from_port, to, to_port), remove (node) or set (node, parameters, title, text), with the arguments of add_node, connect_nodes, disconnect_nodes, remove_node and set_parameters. Later edits can use the names earlier add edits asked for. The tab shows the graph edited.",
 		"inputSchema": { "type": "object", "required": [ "edits" ], "properties": {
 			"edits": { "type": "array", "items": { "type": "object" } },
 			"tab": TAB_ARGUMENT,
@@ -90,6 +92,8 @@ const TOOLS : Array = [
 			"node": { "type": "string", "description": "A node type or a library item" },
 			"name": { "type": "string", "description": "Name for the new node; Material Maker adds a number if it is taken" },
 			"parameters": { "type": "object", "description": "Parameter values, see describe_node" },
+			"title": COMMENT_TITLE_ARGUMENT,
+			"text": COMMENT_TEXT_ARGUMENT,
 			"x": { "type": "number" },
 			"y": { "type": "number" },
 			"tab": TAB_ARGUMENT,
@@ -123,10 +127,12 @@ const TOOLS : Array = [
 	},
 	{
 		"name": "set_parameters",
-		"description": "Sets parameters of a node. Colors are {\"type\": \"Color\", \"r\": 1, \"g\": 0, \"b\": 0, \"a\": 1}; enums take the index of the value.",
-		"inputSchema": { "type": "object", "required": [ "node", "parameters" ], "properties": {
+		"description": "Sets parameters of a node, or the title and text of a comment. Colors are {\"type\": \"Color\", \"r\": 1, \"g\": 0, \"b\": 0, \"a\": 1}; enums take the index of the value.",
+		"inputSchema": { "type": "object", "required": [ "node" ], "properties": {
 			"node": { "type": "string" },
 			"parameters": { "type": "object" },
+			"title": COMMENT_TITLE_ARGUMENT,
+			"text": COMMENT_TEXT_ARGUMENT,
 			"tab": TAB_ARGUMENT,
 			"subgraph": SUBGRAPH_ARGUMENT } }
 	},
@@ -464,6 +470,7 @@ static func compact_nodes(graph : MMGenGraph) -> Array:
 			continue
 		var node : Dictionary = { name=generator.name, type=generator.model if generator.model != null else generator.get_type() }
 		if generator is MMGenComment:
+			node.title = generator.title
 			node.text = generator.text
 		var parameters : Dictionary = {}
 		for definition in generator.get_parameter_defs():
@@ -570,6 +577,8 @@ func run_edits(args : Dictionary, edits : Array):
 		results.append(result)
 	if not results.is_empty():
 		graph_edit.undoredo_create_step("MCP edits", graph.get_hier_name(), before, graph.serialize())
+		# Comment edits do not mark the project changed by themselves
+		graph_edit.set_need_save()
 	return failure if failure != "" else { applied=results.size(), results=results }
 
 # One edit, without an undo step of its own. names maps the names add edits asked for to the names
@@ -591,6 +600,9 @@ func apply_edit(graph_edit : MMGraphEdit, edit : Dictionary, names : Dictionary)
 				var parameters : Dictionary = data.get("parameters", {})
 				parameters.merge(edit.parameters, true)
 				data.parameters = parameters
+			for key in [ "title", "text" ]:
+				if edit.get(key) is String:
+					data[key] = edit[key]
 			var nodes : Array = await graph_edit.do_create_nodes(data, Vector2(float(edit.get("x", 0)), float(edit.get("y", 0))))
 			if nodes.is_empty():
 				return "Material Maker cannot create a node from '%s'" % edit.get("node", "")
@@ -625,19 +637,31 @@ func apply_edit(graph_edit : MMGraphEdit, edit : Dictionary, names : Dictionary)
 			var generator : MMGenBase = graph.get_node_or_null(NodePath(node))
 			if generator == null:
 				return "No node named '%s'" % node
-			if not edit.get("parameters") is Dictionary:
+			var parameters = edit.get("parameters", {})
+			var comment : Dictionary = {}
+			for key in [ "title", "text" ]:
+				if edit.has(key):
+					comment[key] = str(edit[key])
+			if not parameters is Dictionary or (comment.is_empty() and not edit.has("parameters")):
 				return "Pass the parameters as an object"
-			for p in edit.parameters.keys():
+			if not comment.is_empty() and not generator is MMGenComment:
+				return "Only comments have a title and text"
+			for p in parameters.keys():
 				if generator.get_parameter_def(p).is_empty():
 					var parameter_names : PackedStringArray = []
 					for d in generator.get_parameter_defs():
 						parameter_names.append(d.name)
 					return "%s has no parameter '%s' (it has: %s)" % [ node, p, ", ".join(parameter_names) ]
-			var values : Dictionary = {}
-			for p in edit.parameters.keys():
-				generator.set_parameter(p, MMType.deserialize_value(edit.parameters[p]))
-				values[p] = MMType.serialize_value(generator.get_parameter(p))
-			return { node=node, parameters=values }
+			var result : Dictionary = { node=node, parameters={} }
+			for p in parameters.keys():
+				generator.set_parameter(p, MMType.deserialize_value(parameters[p]))
+				result.parameters[p] = MMType.serialize_value(generator.get_parameter(p))
+			for key in comment.keys():
+				generator.set(key, comment[key])
+				result[key] = comment[key]
+			if not comment.is_empty():
+				graph_edit.get_node(NodePath("node_"+node)).update_node()
+			return result
 	return "Unknown op '%s': use add, connect, disconnect, remove or set" % edit.get("op", "")
 
 func tool_render_node(args : Dictionary):

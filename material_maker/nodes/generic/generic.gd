@@ -4,6 +4,8 @@ class_name MMGraphNodeGeneric
 
 var controls = {}
 var ignore_parameter_change = ""
+# Set while the controls show the generator's values, which is not a change
+var initializing_controls : bool = false
 var output_count = 0
 
 var preview : ColorRect
@@ -181,7 +183,8 @@ func on_parameter_changed(p : String, v) -> void:
 	else:
 		MMGraphNodeGeneric.update_control_from_parameter(controls, p, v)
 		update_parameter_tooltip(p, v)
-	get_parent().set_need_save()
+	if not initializing_controls:
+		get_parent().set_need_save()
 
 static func initialize_controls_from_generator(control_list, gen, object) -> void:
 	var parameter_names = []
@@ -225,7 +228,9 @@ static func initialize_controls_from_generator(control_list, gen, object) -> voi
 			print("unsupported widget "+str(o))
 
 func initialize_properties() -> void:
+	initializing_controls = true
 	MMGraphNodeGeneric.initialize_controls_from_generator(controls, generator, self)
+	initializing_controls = false
 
 func update_parameter_tooltip(p : String, v):
 	if ! controls.has(p):

@@ -155,6 +155,8 @@ func _on_change_color_pressed():
 			palette_rects[i].connect("pressed",Callable(self,"set_color"))
 
 func update_node() -> void:
+	title.text = generator.title
+	editor.text = generator.text
 	size = generator.size
 	update_stylebox()
 

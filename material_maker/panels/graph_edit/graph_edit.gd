@@ -589,7 +589,7 @@ func set_need_save(ns = true) -> void:
 	if ns != need_save:
 		need_save = ns
 		update_tab_title()
-	need_save_crash_recovery = true
+	need_save_crash_recovery = ns
 
 func set_save_path(path: String) -> void:
 	if path != save_path:
