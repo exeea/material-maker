@@ -68,6 +68,7 @@ The agent works on the graph shown in the current tab: you see every change live
 | `load_graph`, `new_graph`, `get_graph`, `save_graph` | Open, create, read and save projects |
 | `add_node`, `connect_nodes`, `disconnect_nodes`, `remove_node`, `set_parameters` | Edit the current graph |
 | `render_node` | Render a node output, or a map of the Material node, as an image |
+| `render_preview`, `render_sweep` | Render the material lit on a sphere or a square, or tiled 3x3 to check seams; a contact sheet across values of one parameter |
 | `export_material` | Export the texture maps of the current project or of a `.ptex` file |
 | `list_examples` | Example projects, including a cookbook of 55 finished materials with recipe notes |
 

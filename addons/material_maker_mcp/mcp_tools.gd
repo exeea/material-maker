@@ -11,7 +11,7 @@ const NO_GRAPH : String = "No graph is open in Material Maker"
 const INSTRUCTIONS : String = """Material Maker builds procedural PBR materials from node graphs.
 These tools work on the graph shown in the current Material Maker tab: the user sees every edit live and can undo it.
 Find nodes with list_nodes, read their parameters and ports with describe_node, then build with add_node, connect_nodes and set_parameters, or load a whole graph (the .ptex JSON format) with load_graph.
-Check outputs with render_node and write texture maps with export_material. Node names are the names used in graph JSON, ports count from 0.
+Check outputs with render_node, judge the material lit and tiled with render_preview, compare parameter values with render_sweep, and write texture maps with export_material. Node names are the names used in graph JSON, ports count from 0.
 Examples, including a cookbook of finished materials, are listed by list_examples."""
 
 const GRAPH_ARGUMENTS : Dictionary = {
@@ -106,6 +106,26 @@ const TOOLS : Array = [
 			"port": { "type": "integer", "description": "Output index, default 0" },
 			"size": { "type": "integer", "description": "Edge length in pixels, default 512" },
 			"path": { "type": "string", "description": "PNG file to save the render to" } } }
+	},
+	{
+		"name": "render_preview",
+		"description": "Renders the current tab's material lit like the 3D preview: on a sphere, on a square seen at an angle (one repeat), or tiled 3x3 seen from above to check seams and repetition. Returns the image (up to 1024 pixels) and can save it as PNG.",
+		"inputSchema": { "type": "object", "properties": {
+			"view": { "type": "string", "enum": [ "sphere", "plane", "tiled" ], "description": "Default sphere" },
+			"size": { "type": "integer", "description": "Edge length in pixels, default 512" },
+			"path": { "type": "string", "description": "PNG file to save the render to" } } }
+	},
+	{
+		"name": "render_sweep",
+		"description": "Renders a node output, or a material preview, once for each value of one parameter, as one contact sheet read left to right then top to bottom. The parameter is restored afterwards.",
+		"inputSchema": { "type": "object", "required": [ "node", "parameter", "values" ], "properties": {
+			"node": { "type": "string" },
+			"parameter": { "type": "string" },
+			"values": { "type": "array", "description": "1 to 16 values, in the format of set_parameters" },
+			"view": { "type": "string", "enum": [ "output", "sphere", "plane", "tiled" ], "description": "What each cell shows, default output (the node's output)" },
+			"port": { "type": "integer", "description": "Output index for the output view, default 0" },
+			"size": { "type": "integer", "description": "Edge length of each cell in pixels, default 256" },
+			"path": { "type": "string", "description": "PNG file to save the sheet to" } } }
 	},
 	{
 		"name": "export_material",
@@ -445,23 +465,181 @@ func tool_render_node(args : Dictionary):
 	if generator == null:
 		return "No node named '%s'" % args.get("node", "")
 	var port : int = int(args.get("port", 0))
+	var problem : String = output_problem(generator, port)
+	if problem != "":
+		return problem
+	var size : int = clampi(int(args.get("size", 512)), 16, 8192)
+	var image : Image = await render_output_image(generator, port, size)
+	return image_result(image, args, { node=args.node, port=port, size=size })
+
+func tool_render_preview(args : Dictionary):
+	var graph_edit : MMGraphEdit = get_graph_edit()
+	if graph_edit == null or graph_edit.top_generator == null:
+		return NO_GRAPH
+	var material : MMGenMaterial = graph_edit.get_material_node()
+	if material == null:
+		return "The current graph has no material"
+	var view : String = str(args.get("view", "sphere"))
+	if not view in PREVIEW_VIEWS:
+		return "view must be one of: "+", ".join(PackedStringArray(PREVIEW_VIEWS))
+	var size : int = clampi(int(args.get("size", 512)), 64, 2048)
+	var image : Image = await render_preview_image(material, view, size)
+	return image_result(image, args, { view=view, size=size })
+
+func tool_render_sweep(args : Dictionary):
+	var graph_edit : MMGraphEdit = get_graph_edit()
+	if graph_edit == null or graph_edit.generator == null:
+		return NO_GRAPH
+	var generator : MMGenBase = find_node(graph_edit, args.get("node", ""))
+	if generator == null:
+		return "No node named '%s'" % args.get("node", "")
+	var parameter : String = str(args.get("parameter", ""))
+	if generator.get_parameter_def(parameter).is_empty():
+		return "%s has no parameter '%s'" % [ args.node, parameter ]
+	var values = args.get("values")
+	if not values is Array or values.is_empty() or values.size() > 16:
+		return "Pass 1 to 16 values"
+	var view : String = str(args.get("view", "output"))
+	var port : int = int(args.get("port", 0))
+	var material : MMGenMaterial = graph_edit.get_material_node()
+	if view == "output":
+		var problem : String = output_problem(generator, port)
+		if problem != "":
+			return problem
+	elif not view in PREVIEW_VIEWS:
+		return "view must be output or one of: "+", ".join(PackedStringArray(PREVIEW_VIEWS))
+	elif material == null:
+		return "The current graph has no material"
+	var size : int = clampi(int(args.get("size", 256)), 16, 1024)
+	var original = MMType.serialize_value(generator.get_parameter(parameter))
+	var images : Array[Image] = []
+	for value in values:
+		generator.set_parameter(parameter, MMType.deserialize_value(value))
+		if view == "output":
+			images.append(await render_output_image(generator, port, size))
+		else:
+			images.append(await render_preview_image(material, view, size))
+	generator.set_parameter(parameter, MMType.deserialize_value(original))
+	const GAP : int = 4
+	var columns : int = ceili(sqrt(images.size()))
+	var rows : int = ceili(float(images.size())/columns)
+	var sheet : Image = Image.create(columns*(size+GAP)-GAP, rows*(size+GAP)-GAP, false, Image.FORMAT_RGBA8)
+	sheet.fill(Color(0.25, 0.25, 0.25))
+	var cells : Array = []
+	for i in images.size():
+		images[i].convert(Image.FORMAT_RGBA8)
+		sheet.blit_rect(images[i], Rect2i(Vector2i.ZERO, images[i].get_size()), Vector2i(i%columns, i/columns)*(size+GAP))
+		cells.append({ row=i/columns, column=i%columns, value=values[i] })
+	return image_result(sheet, args, { node=args.node, parameter=parameter, view=view, cell_size=size, gap=GAP, cells=cells })
+
+func output_problem(generator : MMGenBase, port : int) -> String:
 	# Hidden outputs include the maps of Material nodes
 	var output_count : int = generator.get_output_defs(true).size()
 	if port < 0 or port >= output_count:
-		return "%s has %d outputs" % [ args.node, output_count ]
-	var size : int = clampi(int(args.get("size", 512)), 16, 8192)
+		return "%s has %d outputs" % [ generator.name, output_count ]
+	return ""
+
+func render_output_image(generator : MMGenBase, port : int, size : int) -> Image:
 	await mm_deps.wait_for_render_queue()
-	var image : Image = await generator.render_output(port, Vector2i(size, size))
+	return await generator.render_output(port, Vector2i(size, size))
+
+# A render tool's result: the image is saved when a path is given and returned when it is small enough
+func image_result(image : Image, args : Dictionary, result : Dictionary):
 	image.convert(Image.FORMAT_RGBA8)
-	var result : Dictionary = { node=args.node, port=port, size=size }
 	if args.get("path") is String:
 		var error : Error = image.save_png(args.path)
 		if error != OK:
 			return "Cannot save %s: %s" % [ args.path, error_string(error) ]
 		result.saved = args.path
-	if size <= 1024:
+	if image.get_width() <= 1024 and image.get_height() <= 1024:
 		result.image = image.save_png_to_buffer()
 	return result
+
+# 3D previews: the material on a sphere, on a square seen at an angle, or tiled 3x3 seen from above.
+# Their own scene, lit like the 3D preview panel, so the panel and its settings stay untouched.
+
+const PREVIEW_VIEWS : Array[String] = [ "sphere", "plane", "tiled" ]
+
+var preview_viewport : SubViewport
+var preview_material : ShaderMaterial
+var preview_camera : Camera3D
+var preview_sphere : MeshInstance3D
+var preview_plane : MeshInstance3D
+
+func create_preview_scene() -> void:
+	preview_viewport = SubViewport.new()
+	preview_viewport.own_world_3d = true
+	preview_viewport.msaa_3d = Viewport.MSAA_4X
+	preview_viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	add_child(preview_viewport)
+	var environment : Environment = Environment.new()
+	environment.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+	environment.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
+	var world_environment : WorldEnvironment = WorldEnvironment.new()
+	world_environment.environment = environment
+	preview_viewport.add_child(world_environment)
+	var sun : DirectionalLight3D = DirectionalLight3D.new()
+	sun.shadow_enabled = true
+	preview_viewport.add_child(sun)
+	preview_camera = Camera3D.new()
+	preview_viewport.add_child(preview_camera)
+	preview_material = ShaderMaterial.new()
+	var sphere_mesh : SphereMesh = SphereMesh.new()
+	sphere_mesh.radius = 1.0
+	sphere_mesh.height = 2.0
+	sphere_mesh.radial_segments = 128
+	sphere_mesh.rings = 64
+	preview_sphere = MeshInstance3D.new()
+	preview_sphere.mesh = sphere_mesh
+	preview_sphere.material_override = preview_material
+	preview_viewport.add_child(preview_sphere)
+	var plane_mesh : PlaneMesh = PlaneMesh.new()
+	plane_mesh.size = Vector2(2, 2)
+	preview_plane = MeshInstance3D.new()
+	preview_plane.mesh = plane_mesh
+	preview_plane.material_override = preview_material
+	preview_viewport.add_child(preview_plane)
+	var environment_manager = mm_globals.main_window.get_node("EnvironmentManager")
+	await environment_manager.apply_environment(mm_globals.get_config("ui_3d_preview_environment"), environment, sun)
+
+func render_preview_image(material : MMGenMaterial, view : String, size : int) -> Image:
+	if preview_viewport == null:
+		await create_preview_scene()
+	await mm_deps.wait_for_render_queue()
+	await material.update_material(preview_material)
+	preview_sphere.visible = view == "sphere"
+	preview_plane.visible = view != "sphere"
+	match view:
+		"sphere":
+			preview_material.set_shader_parameter("uv1_scale", Vector3(4, 2, 1))
+			preview_camera.projection = Camera3D.PROJECTION_PERSPECTIVE
+			preview_camera.fov = 45
+			preview_camera.look_at_from_position(Vector3(0, 1.5, 2.6), Vector3.ZERO)
+		"plane":
+			preview_material.set_shader_parameter("uv1_scale", Vector3(1, 1, 1))
+			preview_camera.projection = Camera3D.PROJECTION_PERSPECTIVE
+			preview_camera.fov = 45
+			preview_camera.look_at_from_position(Vector3(0, 2.0, 2.8), Vector3(0, 0, 0.1))
+		"tiled":
+			preview_material.set_shader_parameter("uv1_scale", Vector3(3, 3, 1))
+			preview_camera.projection = Camera3D.PROJECTION_ORTHOGONAL
+			preview_camera.size = 2
+			preview_camera.look_at_from_position(Vector3(0, 4, 0), Vector3.ZERO, Vector3.FORWARD)
+	preview_viewport.size = Vector2i(size, size)
+	# Render until two frames match: the first ones can miss shaders that are still compiling
+	preview_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	var image : Image
+	var previous : PackedByteArray = PackedByteArray()
+	for frame in 40:
+		await RenderingServer.frame_post_draw
+		if frame < 2:
+			continue
+		image = preview_viewport.get_texture().get_image()
+		if image.get_data() == previous:
+			break
+		previous = image.get_data()
+	preview_viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	return image
 
 func tool_export_material(args : Dictionary):
 	var prefix : String = str(args.get("path", "")).replace("\\", "/")
