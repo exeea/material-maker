@@ -2,6 +2,7 @@ extends Node
 
 func show_error(message : String):
 	print(message)
+	get_tree().quit(1)
 
 static func name_to_lower(s : String) -> String:
 	s = s.strip_edges()
@@ -100,14 +101,14 @@ func _ready():
 	var args : PackedStringArray = OS.get_cmdline_args()
 	if ("--export" in args) or ("--export-material" in args):
 		print("Exporting...")
+		# 0 exports at each node's own Size, like the editor
+		var image_size : int = 0
 		var dir : DirAccess = DirAccess.open(".")
 		print("Current dir: ", dir.get_current_dir())
 		var target : String = "Godot/Godot 4 Standard"
 		#TODO: fix this
 		var output_dir : String = dir.get_current_dir()
 		var output_file : String = "%f"
-		# 0 exports at each node's own Size, like the editor
-		var texture_size : int = 0
 		var files : Array[String] = []
 		var i = 1
 		while i < OS.get_cmdline_args().size():
@@ -123,9 +124,9 @@ func _ready():
 					output_file = OS.get_cmdline_args()[i]
 				"--size":
 					i += 1
-					texture_size = int(OS.get_cmdline_args()[i])
-					if texture_size < 0:
-						#show_error("ERROR: incorrect size "+OS.get_cmdline_args()[i])
+					image_size = int(OS.get_cmdline_args()[i])
+					if image_size < 0:
+						show_error("ERROR: incorrect size "+OS.get_cmdline_args()[i])
 						return
 				_:
 					files.push_back(OS.get_cmdline_args()[i])
@@ -164,7 +165,7 @@ func _ready():
 									expanded_files.push_back("website:"+str(mi))
 			else:
 				expanded_files.push_back(f)
-		await export_files(expanded_files, output_dir, target, output_file, texture_size)
+		await export_files(expanded_files, output_dir, target, output_file, image_size)
 	else:
 		var no_logo : bool = ( args.find("--no-splash") != -1 )
 		var scene : PackedScene
