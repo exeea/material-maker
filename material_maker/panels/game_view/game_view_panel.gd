@@ -10,6 +10,7 @@ const FloatEditScene = preload("res://material_maker/widgets/float_edit/float_ed
 var game_view : SubViewport = GameView.new()
 var hex_edit : FloatEdit
 var repeat_edit : FloatEdit
+var tilt_edit : FloatEdit
 var grid_box : CheckBox
 var view_metres : float = GameView.VIEW_METRES
 
@@ -24,6 +25,7 @@ func _ready() -> void:
 	add_child(controls)
 	hex_edit = add_float_edit(controls, "Hex (m)", "Width of a hex, from point to point", 5, 60, GameView.HEX_METRES)
 	repeat_edit = add_float_edit(controls, "Repeat (m)", "Ground covered by one repeat of the maps", 1, 64, GameView.REPEAT_METRES)
+	tilt_edit = add_float_edit(controls, "Tilt (°)", "Camera angle from straight down: the parallax shows at an angle", 0, 80, 0)
 	grid_box = CheckBox.new()
 	grid_box.text = "Grid"
 	grid_box.button_pressed = true
@@ -63,7 +65,7 @@ func add_float_edit(parent : Control, text : String, tooltip : String, min_value
 	return edit
 
 func update_view() -> void:
-	game_view.set_view(hex_edit.value, repeat_edit.value, view_metres, grid_box.button_pressed)
+	game_view.set_view(hex_edit.value, repeat_edit.value, view_metres, grid_box.button_pressed, tilt_edit.value)
 
 func on_view_gui_input(event : InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed:

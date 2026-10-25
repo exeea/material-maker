@@ -169,11 +169,24 @@ def test_live(client, fixture, out):
     grid_off = os.path.join(out, 'game-no-grid.png').replace(os.sep, '/')
     client.call('render_preview', tab=tab, view='game', size=256, path=grid_off, game={'grid': False})
     check('the game view draws the hex grid', ImageChops.difference(image(os.path.join(out, 'game.png')), image(grid_off)).getbbox() is not None)
-    client.call('set_parameters', tab=tab, subgraph='', node='Material', parameters={'albedo_color': {'type': 'Color', 'r': .25, 'g': .25, 'b': .25, 'a': 1}})
-    tinted = os.path.join(out, 'game-tinted.png').replace(os.sep, '/')
-    client.call('render_preview', tab=tab, view='game', size=256, path=tinted, game={'grid': False})
-    brightness = [sum(ImageStat.Stat(image(p)).mean) for p in (grid_off, tinted)]
-    check('the game view applies the albedo tint', brightness[1] < brightness[0] * .6, brightness)
+
+    def game(name, settings, **view):
+        client.call('set_parameters', tab=tab, subgraph='', node='Material', parameters=settings)
+        path = os.path.join(out, f'game-{name}.png').replace(os.sep, '/')
+        client.call('render_preview', tab=tab, view='game', size=256, path=path, game=dict(view, grid=False))
+        return image(path)
+
+    def brightness(picture):
+        return sum(ImageStat.Stat(picture).mean)
+
+    # The .tres settings the game applies: emission, the heightmap's parallax, the albedo tint
+    lit, dark = game('lit', {'emission_energy': 1.0}), game('dark', {'emission_energy': 0.0})
+    check('the game view adds the emission map', brightness(lit) > brightness(dark) * 1.1, [brightness(lit), brightness(dark)])
+    flat, tilted = game('flat', {'depth_scale': 0.0}), game('tilted', {'depth_scale': 0.0}, tilt=60)
+    check('the parallax moves nothing seen from straight above', ImageChops.difference(flat, game('flat-deep', {'depth_scale': 2.0})).getbbox() is None)
+    check('and moves the ground at a tilt', ImageChops.difference(tilted, game('tilted-deep', {'depth_scale': 2.0}, tilt=60)).getbbox() is not None)
+    tinted = game('tinted', {'albedo_color': {'type': 'Color', 'r': .25, 'g': .25, 'b': .25, 'a': 1}})
+    check('the game view applies the albedo tint', brightness(tinted) < brightness(game('untinted', {'albedo_color': {'type': 'Color', 'r': 1, 'g': 1, 'b': 1, 'a': 1}})) * .6)
     result, error = client.call('close_graph', tab=tab, discard=True)
     check('close_graph discards the edits', not error and open(fixture, 'rb').read() == open(os.path.join(HERE, 'fixtures', 'surface.ptex'), 'rb').read(), result)
 

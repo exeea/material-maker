@@ -4,15 +4,21 @@ shader_type spatial;
 // twice, the second read 2.37 times larger, turned by 34 degrees and offset, the two blended by a smooth world field.
 // Positions are in metres: the view's height spans view_metres, one repeat of the maps spans repeat_metres, and the
 // flat-topped hexes of the grid span hex_metres from point to point. The material settings the game reads from the
-// .tres apply as in Godot: the albedo tint, the normal map strength and the roughness and metallic factors.
+// .tres apply as in Godot: the albedo tint, the normal map strength, the roughness and metallic factors, the emission
+// energy and the heightmap's parallax.
 
 uniform sampler2D albedo_map : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D orm_map : filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D normal_map : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D emission_map : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D height_map : filter_linear_mipmap_anisotropic, repeat_enable;
 uniform vec4 albedo_tint : source_color;
 uniform float normal_scale;
 uniform float roughness_factor;
 uniform float metallic_factor;
+// Godot's heightmap_scale/100, the heightmap's depth in repeats, and the emission energy; 0 without their maps
+uniform float heightmap_depth;
+uniform float emission_energy;
 uniform float hex_metres;
 uniform float repeat_metres;
 uniform float view_metres;
@@ -51,6 +57,15 @@ void fragment() {
 	vec2 a = metres/repeat_metres;
 	vec2 b = TURN*a/2.37+.31;
 	float t = smoothstep(.2, .8, noise(metres/34.0)*.65+noise(metres/13.0+.19)*.35);
+	if (heightmap_depth > 0.0) {
+		// Godot's parallax without deep parallax, as the game draws it: the reads move away from the eye by their
+		// depth below the heightmap's white at the unmoved reads, along the orthographic camera's direction (VIEW
+		// points at the camera's position instead)
+		vec3 view = normalize(INV_VIEW_MATRIX[2].xyz);
+		float sink = 1.0-mix(texture(height_map, a).r, texture(height_map, b).r, t);
+		a = (metres-view.xz*heightmap_depth*repeat_metres*sink)/repeat_metres;
+		b = TURN*a/2.37+.31;
+	}
 	ALBEDO = albedo_tint.rgb*mix(texture(albedo_map, a).rgb, texture(albedo_map, b).rgb, t);
 	vec3 orm = mix(texture(orm_map, a).rgb, texture(orm_map, b).rgb, t);
 	AO = orm.r;
@@ -61,6 +76,7 @@ void fragment() {
 	nb.xy = transpose(TURN)*nb.xy;
 	NORMAL_MAP = normalize(mix(na, nb, t))*.5+.5;
 	NORMAL_MAP_DEPTH = normal_scale;
+	EMISSION = emission_energy*mix(texture(emission_map, a).rgb, texture(emission_map, b).rgb, t);
 	if (grid) {
 		float edge = hex_edge_distance(metres);
 		float line = 1.0-smoothstep(0.0, 1.5*fwidth(edge), edge);

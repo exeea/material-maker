@@ -20,7 +20,7 @@ const GRAPH_ARGUMENTS : Dictionary = {
 	"graph": { "type": "object", "description": "A graph in Material Maker's .ptex JSON format" },
 	"path": { "type": "string", "description": "Path of a .ptex file (used instead of graph)" }
 }
-const GAME_ARGUMENT : Dictionary = { "type": "object", "description": "Game view scale in metres: hex_metres (width of a hex from point to point, default 30 as in MegaMek), repeat_metres (ground one repeat of the maps covers, default 12), view_metres (width of the image, default 90); grid (draw the hexes, default true)" }
+const GAME_ARGUMENT : Dictionary = { "type": "object", "description": "Game view scale in metres: hex_metres (width of a hex from point to point, default 30 as in MegaMek), repeat_metres (ground one repeat of the maps covers, default 12), view_metres (height of the image, default 90); grid (draw the hexes, default true); tilt (camera angle from straight down in degrees, default 0: the heightmap's parallax shows at an angle)" }
 const TAB_ARGUMENT : Dictionary = { "type": "integer", "description": "Handle of the tab to work on, from load_graph, new_graph or get_graph; default the current tab" }
 const EXACT_8BIT_ARGUMENT : Dictionary = { "type": "boolean", "description": "Write 8-bit maps (PNG, JPG, WebP) with exactly rounded codes, rendered in 32-bit floats (the command line's --exact-8bit); by default Material Maker renders them in 16-bit floats and truncates" }
 const COMMENT_TITLE_ARGUMENT : Dictionary = { "type": "string", "description": "Title of a comment node" }
@@ -934,7 +934,8 @@ func render_preview_image(material : MMGenMaterial, view : String, size : int, g
 			game = {}
 		game_view.set_view(clampf(float(game.get("hex_metres", GameView.HEX_METRES)), 1.0, 1000.0),
 			clampf(float(game.get("repeat_metres", GameView.REPEAT_METRES)), 0.1, 1000.0),
-			clampf(float(game.get("view_metres", GameView.VIEW_METRES)), 1.0, 10000.0), game.get("grid", true) != false)
+			clampf(float(game.get("view_metres", GameView.VIEW_METRES)), 1.0, 10000.0), game.get("grid", true) != false,
+			clampf(float(game.get("tilt", 0.0)), 0.0, 80.0))
 		await game_view.update_maps(material)
 		return await capture_viewport(game_view, size)
 	if preview_viewport == null:

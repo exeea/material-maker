@@ -90,9 +90,11 @@ expressions, the subgraph node's value and the controls linked to it, in one und
 
 The Game View panel (View > Panels) shows the current material's exported maps on the ground, seen from above as
 MegaMek's ground shader samples them (each map read twice, the second read larger, turned and blended in), with
-MegaMek's hexes. It applies the Material node's albedo tint, normal strength and roughness and metallic factors as
-the game applies them from the `.tres`. Its sliders set the hex width and the ground one repeat of the maps covers,
-in metres; the mouse wheel zooms. Tool calls run at full speed while Material Maker's window is in the background.
+MegaMek's hexes. It applies the Material node's albedo tint, normal strength, roughness and metallic factors,
+emission and heightmap parallax as the game applies them from the `.tres` (projects exported as their own
+ShaderMaterial, like lava, have shaders of their own in the game and get neither). Its sliders set the hex width
+and the ground one repeat of the maps covers, in metres, and the camera's tilt, which shows the parallax; the mouse
+wheel zooms. Tool calls run at full speed while Material Maker's window is in the background.
 
 `test/mcp/run.py` tests the tools end to end: `python test/mcp/run.py --godot <Godot 4 editor>` for this checkout,
 `--exe <material_maker executable>` for a release.

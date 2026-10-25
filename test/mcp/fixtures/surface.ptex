@@ -216,6 +216,12 @@
 			"from_port": 0,
 			"to": "Material",
 			"to_port": 6
+		},
+		{
+			"from": "Noise",
+			"from_port": 0,
+			"to": "Material",
+			"to_port": 3
 		}
 	]
 }
