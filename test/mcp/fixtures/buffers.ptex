@@ -1,0 +1,68 @@
+{
+	"name": "material",
+	"label": "Graph",
+	"type": "graph",
+	"parameters": {},
+	"node_position": {
+		"x": 0,
+		"y": 0
+	},
+	"seed_int": 0,
+	"nodes": [
+		{
+			"name": "Material",
+			"type": "material",
+			"parameters": {
+				"size": 8
+			},
+			"node_position": {
+				"x": 600,
+				"y": 0
+			},
+			"seed_int": 0,
+			"export_paths": {}
+		},
+		{
+			"name": "Noise",
+			"type": "perlin",
+			"parameters": {
+				"scale_x": 4,
+				"scale_y": 4,
+				"iterations": 3,
+				"persistence": 0.5
+			},
+			"node_position": {
+				"x": 0,
+				"y": 0
+			},
+			"seed_int": 0
+		},
+		{
+			"name": "Curvature",
+			"type": "smooth_curvature",
+			"parameters": {
+				"param0": 9,
+				"param2": 0.4
+			},
+			"node_position": {
+				"x": 300,
+				"y": 0
+			},
+			"seed_int": 0
+		}
+	],
+	"connections": [
+		{
+			"from": "Noise",
+			"from_port": 0,
+			"to": "Curvature",
+			"to_port": 0
+		},
+		{
+			"from": "Curvature",
+			"from_port": 0,
+			"to": "Material",
+			"to_port": 0
+		}
+	]
+}

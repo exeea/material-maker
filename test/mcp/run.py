@@ -7,7 +7,7 @@ It starts a private Material Maker on port 8799 (--port) with a settings folder 
 prints each check. A checkout runs from a copy (in the temporary folder, synced at each run) whose project names that
 settings folder. Edits work on copies of fixtures/ and of the cookbook; nothing else is written. Python 3 and Pillow.
 """
-import argparse, glob, json, os, shutil, subprocess, sys, tempfile, time, urllib.error, urllib.request
+import argparse, glob, importlib.util, json, os, shutil, subprocess, sys, tempfile, time, urllib.error, urllib.request
 from PIL import Image, ImageChops, ImageStat
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -76,9 +76,26 @@ def start(options, port):
                 subprocess.run(['taskkill', '/F', '/T', '/PID', str(process.pid)], capture_output=True)
             log.close()
         return stop
-    launcher = os.path.join(os.path.dirname(options.exe), 'material_maker_mcp.py')
-    subprocess.run([sys.executable, launcher, 'start', str(port)], check=True, timeout=300)
-    return lambda: subprocess.run([sys.executable, launcher, 'stop', str(port)], timeout=120)
+    script = os.path.join(os.path.dirname(options.exe), 'material_maker_mcp.py')
+    subprocess.run([sys.executable, script, 'start', str(port)], check=True, timeout=300)
+    return lambda: subprocess.run([sys.executable, script, 'stop', str(port)], timeout=120)
+
+
+def launcher(options):
+    """The release's material_maker_mcp.py, as a module"""
+    spec = importlib.util.spec_from_file_location('material_maker_mcp', os.path.join(os.path.dirname(options.exe), 'material_maker_mcp.py'))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def command_line(options, port):
+    """Material Maker without the MCP server, with the tests' settings folder: the checkout's copy, or the release's
+    private instance"""
+    if options.godot:
+        return [options.godot, '--path', os.path.join(WORK, 'checkout')]
+    instance = launcher(options)
+    return [os.path.join(instance.instance_folder(port), instance.EXECUTABLE)]
 
 
 def wait_until_ready(client):
@@ -191,6 +208,20 @@ def test_live(client, fixture, out):
     check('close_graph discards the edits', not error and open(fixture, 'rb').read() == open(os.path.join(HERE, 'fixtures', 'surface.ptex'), 'rb').read(), result)
 
 
+def test_command_line(command, out):
+    """The command-line export starts before the render thread has made its rendering device, which buffer nodes
+    (smooth_curvature) need as soon as they are loaded"""
+    project = os.path.join(out, 'buffers.ptex')
+    shutil.copy(os.path.join(HERE, 'fixtures', 'buffers.ptex'), project)
+    folder = os.path.join(out, 'command-line')
+    result = subprocess.run(command + ['--export-material', project, '--target', 'Godot/Godot 4 Standard', '--output-dir', folder],
+                            capture_output=True, text=True, timeout=600)
+    log = result.stdout + result.stderr
+    check('the command-line export of buffer nodes ends normally', result.returncode == 0 and 'on a null value' not in log,
+          f'exit {result.returncode}, {log.count("on a null value")} calls on a null rendering device')
+    check('and writes the maps', os.path.exists(os.path.join(folder, 'buffers_albedo.png')))
+
+
 def main():
     arguments = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     group = arguments.add_mutually_exclusive_group(required=True)
@@ -217,6 +248,7 @@ def main():
         test_live(client, fixture, out)
     finally:
         stop()
+    test_command_line(command_line(options, port), out)
     print('FAILURES:', failures or 'none')
     sys.exit(1 if failures else 0)
 
