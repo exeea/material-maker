@@ -88,9 +88,8 @@ func export_material(prefix : String, _profile : String, size : int = 0, command
 	var source = get_source(0)
 	if source != null:
 		await mm_deps.wait_for_render_queue()
-		var texture : MMTexture = await source.generator.render_output_to_texture(source.output_index, Vector2i(size, size))
+		var file_name : String = "%s.%s" % [ prefix, get_image_format() ]
 		if parameters.suffix != "":
-			var filename : String = interpret_file_name(parameters.suffix, prefix.get_base_dir())
-			await texture.save_to_file(prefix.get_base_dir().path_join(filename))
-		else:
-			await texture.save_to_file("%s.%s" % [ prefix, get_image_format() ])
+			file_name = prefix.get_base_dir().path_join(interpret_file_name(parameters.suffix, prefix.get_base_dir()))
+		var texture : MMTexture = await source.generator.render_output_for_export(source.output_index, Vector2i(size, size), file_name)
+		await texture.save_to_file(file_name)

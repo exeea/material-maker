@@ -743,7 +743,7 @@ func export_material(prefix : String, profile : String, size : int = 0, command_
 					if progress_dialog:
 						progress_dialog.set_progress(float(processed_files)/float(total_files))
 					continue
-				var result : MMTexture = await render_output_to_texture(output_index, Vector2i(size, size))
+				var result : MMTexture = await render_output_for_export(output_index, Vector2i(size, size), file_name)
 				e = await result.save_to_file(file_name)
 				if e != OK:
 					error_files += 1

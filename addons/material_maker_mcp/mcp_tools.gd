@@ -21,6 +21,7 @@ const GRAPH_ARGUMENTS : Dictionary = {
 	"path": { "type": "string", "description": "Path of a .ptex file (used instead of graph)" }
 }
 const TAB_ARGUMENT : Dictionary = { "type": "integer", "description": "Handle of the tab to work on, from load_graph, new_graph or get_graph; default the current tab" }
+const EXACT_8BIT_ARGUMENT : Dictionary = { "type": "boolean", "description": "Write 8-bit maps (PNG, JPG, WebP) with exactly rounded codes, rendered in 32-bit floats (the command line's --exact-8bit); by default Material Maker renders them in 16-bit floats and truncates" }
 const COMMENT_TITLE_ARGUMENT : Dictionary = { "type": "string", "description": "Title of a comment node" }
 const COMMENT_TEXT_ARGUMENT : Dictionary = { "type": "string", "description": "Text of a comment node" }
 const SUBGRAPH_ARGUMENT : Dictionary ={ "type": "string", "description": "Subgraph to work in: node names from the top level joined by '/', \"\" for the top level; default the graph the tab shows" }
@@ -151,9 +152,10 @@ const TOOLS : Array = [
 	},
 	{
 		"name": "render_preview",
-		"description": "Renders a tab's material lit like the 3D preview: on a sphere, on a square seen at an angle (one repeat), or tiled 3x3 seen from above to check seams and repetition. Returns the image (up to 1024 pixels) and can save it as PNG.",
+		"description": "Renders a tab's material lit like the 3D preview: on a sphere, on a square seen at an angle (one repeat), tiled 3x3 seen from above to check seams and repetition, or seen from above as MegaMek's ground shader samples the exported maps (game: each map read twice, the second read larger, turned and blended in by a smooth field). Returns the image (up to 1024 pixels) and can save it as PNG.",
 		"inputSchema": { "type": "object", "properties": {
-			"view": { "type": "string", "enum": [ "sphere", "plane", "tiled" ], "description": "Default sphere" },
+			"view": { "type": "string", "enum": [ "sphere", "plane", "tiled", "game" ], "description": "Default sphere" },
+			"repeats": { "type": "number", "description": "Game view: repeats of the maps across the image, default 4" },
 			"size": { "type": "integer", "description": "Edge length in pixels, default 512" },
 			"path": { "type": "string", "description": "PNG file to save the render to" },
 			"tab": TAB_ARGUMENT } }
@@ -165,7 +167,7 @@ const TOOLS : Array = [
 			"node": { "type": "string" },
 			"parameter": { "type": "string" },
 			"values": { "type": "array", "description": "1 to 16 values, in the format of set_parameters" },
-			"view": { "type": "string", "enum": [ "output", "sphere", "plane", "tiled" ], "description": "What each cell shows, default output (the node's output)" },
+			"view": { "type": "string", "enum": [ "output", "sphere", "plane", "tiled", "game" ], "description": "What each cell shows, default output (the node's output)" },
 			"port": { "type": "integer", "description": "Output index for the output view, default 0" },
 			"size": { "type": "integer", "description": "Edge length of each cell in pixels, default 256" },
 			"path": { "type": "string", "description": "PNG file to save the sheet to" },
@@ -180,6 +182,7 @@ const TOOLS : Array = [
 			"target": { "type": "string", "description": "Export target, default 'Godot/Godot 4 Standard' (see get_graph)" },
 			"size": { "type": "integer", "description": "Edge length in pixels; default is the material's Size" },
 			"graph_path": { "type": "string", "description": "Export this .ptex file instead of a tab's project" },
+			"exact_8bit": EXACT_8BIT_ARGUMENT,
 			"tab": TAB_ARGUMENT } }
 	},
 	{
@@ -199,7 +202,8 @@ const TOOLS : Array = [
 			"files": { "type": "array", "items": { "type": "string" }, "description": ".ptex paths; * and ? match any characters, / included" },
 			"maps": { "type": "string", "description": "Folder of the shipped files (<project>_albedo.png, <project>.tres, ...)" },
 			"target": { "type": "string", "description": "Export target, default 'Godot/Godot 4 Standard'" },
-			"size": { "type": "integer", "description": "Edge length in pixels; default is each map's Size" } } }
+			"size": { "type": "integer", "description": "Edge length in pixels; default is each map's Size" },
+			"exact_8bit": EXACT_8BIT_ARGUMENT } }
 	},
 	{
 		"name": "quit",
@@ -742,8 +746,8 @@ func apply_edit(graph_edit : MMGraphEdit, edit : Dictionary, names : Dictionary)
 	return "Unknown op '%s': use add, connect, disconnect, remove, set, add_parameter, update_parameter, rename_parameter or remove_parameter" % edit.get("op", "")
 
 # Exposed-parameter edits use edit_files' operations on the project's data, and the differences reach the
-# open graph as editor commands
-func apply_parameter_edit(graph_edit : MMGraphEdit, edit : Dictionary):
+# open graph as editor commands. The editor's own parameter rename (remote.gd) uses it too.
+static func apply_parameter_edit(graph_edit : MMGraphEdit, edit : Dictionary):
 	var file = PtexFile.new()
 	file.data = graph_edit.top_generator.serialize().duplicate(true)
 	var current : Dictionary = file.data.duplicate(true)
@@ -757,6 +761,17 @@ func apply_parameter_edit(graph_edit : MMGraphEdit, edit : Dictionary):
 	for action in step_actions(graph_edit, current, file.data).redo:
 		await graph_edit.undoredo_command(action)
 	return { changes=file.changes }
+
+# apply_parameter_edit as an undo step of its own
+static func apply_parameter_edit_step(graph_edit : MMGraphEdit, edit : Dictionary, action_name : String):
+	var before : Dictionary = graph_edit.top_generator.serialize().duplicate(true)
+	var result = await apply_parameter_edit(graph_edit, edit)
+	if result is Dictionary:
+		var actions : Dictionary = step_actions(graph_edit, before, graph_edit.top_generator.serialize())
+		if not actions.undo.is_empty():
+			graph_edit.undoredo.add(action_name, actions.undo, actions.redo)
+		graph_edit.set_need_save()
+	return result
 
 func tool_render_node(args : Dictionary):
 	var graph_edit = target_graph_edit(args)
@@ -784,7 +799,8 @@ func tool_render_preview(args : Dictionary):
 	if not view in PREVIEW_VIEWS:
 		return "view must be one of: "+", ".join(PackedStringArray(PREVIEW_VIEWS))
 	var size : int = clampi(int(args.get("size", 512)), 64, 2048)
-	var image : Image = await render_preview_image(material, view, size)
+	var repeats : float = clampf(float(args.get("repeats", 4.0)), 0.25, 64.0)
+	var image : Image = await render_preview_image(material, view, size, repeats)
 	return image_result(image, args, { view=view, size=size })
 
 func tool_render_sweep(args : Dictionary):
@@ -856,13 +872,49 @@ func image_result(image : Image, args : Dictionary, result : Dictionary):
 		result.image = image.save_png_to_buffer()
 	return result
 
-# 3D previews: the material on a sphere, on a square seen at an angle, or tiled 3x3 seen from above.
+# 3D previews: the material on a sphere, on a square seen at an angle, tiled 3x3 seen from above, or seen
+# from above as the game samples its exported maps.
 # Their own scene, lit like the 3D preview panel, so the panel and its settings stay untouched.
 
-const PREVIEW_VIEWS : Array[String] = [ "sphere", "plane", "tiled" ]
+const PREVIEW_VIEWS : Array[String] = [ "sphere", "plane", "tiled", "game" ]
+
+# The game view samples the exported maps like MegaMek's ground shader does: every map read twice, the second
+# read 2.37 times larger, turned by 34 degrees and offset, blended by a smooth field. An approximation for scale
+# and repetition: the game's colour grading, parallax and material families are not reproduced.
+const GAME_VIEW_SHADER : String = """
+shader_type spatial;
+uniform sampler2D albedo_map : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D orm_map : filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D normal_map : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform float repeats = 4.0;
+const mat2 TURN = mat2(vec2(.8253, .5646), vec2(-.5646, .8253));
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7)))*43758.5453); }
+float noise(vec2 p) {
+	vec2 i = floor(p), f = fract(p);
+	f = f*f*(3.0-2.0*f);
+	return mix(mix(hash(i), hash(i+vec2(1.0, 0.0)), f.x), mix(hash(i+vec2(0.0, 1.0)), hash(i+vec2(1.0, 1.0)), f.x), f.y);
+}
+void fragment() {
+	vec2 a = UV*repeats;
+	vec2 b = TURN*a/2.37+.31;
+	float t = smoothstep(.2, .8, noise(UV*repeats*.35)*.65+noise(UV*repeats*.9+.19)*.35);
+	ALBEDO = mix(texture(albedo_map, a).rgb, texture(albedo_map, b).rgb, t);
+	vec3 orm = mix(texture(orm_map, a).rgb, texture(orm_map, b).rgb, t);
+	AO = orm.r;
+	ROUGHNESS = orm.g;
+	METALLIC = orm.b;
+	vec3 na = texture(normal_map, a).rgb*2.0-1.0;
+	vec3 nb = texture(normal_map, b).rgb*2.0-1.0;
+	nb.xy = transpose(TURN)*nb.xy;
+	NORMAL_MAP = normalize(mix(na, nb, t))*.5+.5;
+}
+"""
+# The Material node's outputs the game view reads (those of its Godot 4 Standard export)
+const GAME_VIEW_MAPS : Dictionary = { albedo_map=0, orm_map=1, normal_map=3 }
 
 var preview_viewport : SubViewport
 var preview_material : ShaderMaterial
+var game_material : ShaderMaterial
 var preview_camera : Camera3D
 var preview_sphere : MeshInstance3D
 var preview_plane : MeshInstance3D
@@ -900,17 +952,32 @@ func create_preview_scene() -> void:
 	preview_plane.mesh = plane_mesh
 	preview_plane.material_override = preview_material
 	preview_viewport.add_child(preview_plane)
+	game_material = ShaderMaterial.new()
+	game_material.shader = Shader.new()
+	game_material.shader.code = GAME_VIEW_SHADER
 	var environment_manager = mm_globals.main_window.get_node("EnvironmentManager")
 	await environment_manager.apply_environment(mm_globals.get_config("ui_3d_preview_environment"), environment, sun)
 
-func render_preview_image(material : MMGenMaterial, view : String, size : int) -> Image:
+func render_preview_image(material : MMGenMaterial, view : String, size : int, repeats : float = 4.0) -> Image:
 	if preview_viewport == null:
 		await create_preview_scene()
 	await mm_deps.wait_for_render_queue()
 	await material.update_material(preview_material)
 	preview_sphere.visible = view == "sphere"
 	preview_plane.visible = view != "sphere"
+	preview_plane.material_override = game_material if view == "game" else preview_material
 	match view:
+		"game":
+			# At the export size, 8-bit with mipmaps, as the game loads the exported PNGs
+			for map in GAME_VIEW_MAPS.keys():
+				var map_image : Image = await render_output_image(material, GAME_VIEW_MAPS[map], material.get_image_size())
+				map_image.convert(Image.FORMAT_RGBA8)
+				map_image.generate_mipmaps()
+				game_material.set_shader_parameter(map, ImageTexture.create_from_image(map_image))
+			game_material.set_shader_parameter("repeats", repeats)
+			preview_camera.projection = Camera3D.PROJECTION_ORTHOGONAL
+			preview_camera.size = 2
+			preview_camera.look_at_from_position(Vector3(0, 4, 0), Vector3.ZERO, Vector3.FORWARD)
 		"sphere":
 			preview_material.set_shader_parameter("uv1_scale", Vector3(4, 2, 1))
 			preview_camera.projection = Camera3D.PROJECTION_PERSPECTIVE
@@ -951,15 +1018,15 @@ func tool_export_material(args : Dictionary):
 	DirAccess.make_dir_recursive_absolute(prefix.get_base_dir())
 	var start : int = int(Time.get_unix_time_from_system())
 	var exported
+	MMGenBase.exact_8bit_export = args.get("exact_8bit") == true
 	if args.get("graph_path") is String:
 		exported = await export_project_file(args.graph_path, prefix, target, size)
-		if exported is String:
-			return exported
 	else:
 		var graph_edit = target_graph_edit(args)
-		if graph_edit is String:
-			return graph_edit
-		exported = await ExportCommand.export_generator(graph_edit.top_generator, prefix, target, size)
+		exported = graph_edit if graph_edit is String else await ExportCommand.export_generator(graph_edit.top_generator, prefix, target, size)
+	MMGenBase.exact_8bit_export = false
+	if exported is String:
+		return exported
 	if exported == 0:
 		return "Nothing to export: the graph has no material or Export node"
 	var files : Array = []
@@ -989,11 +1056,13 @@ func tool_verify_export(args : Dictionary):
 		return "Folder '%s' does not exist" % maps
 	var reports : Array = []
 	var differing : int = 0
+	MMGenBase.exact_8bit_export = args.get("exact_8bit") == true
 	for path in paths:
 		var report : Dictionary = await verify_file(path, maps, str(args.get("target", "Godot/Godot 4 Standard")), int(args.get("size", 0)))
 		if not report.get("identical", false):
 			differing += 1
 		reports.append(report)
+	MMGenBase.exact_8bit_export = false
 	return { files=reports, differing=differing }
 
 # Exports a project into a temporary folder and compares each file with the one of the same name in maps

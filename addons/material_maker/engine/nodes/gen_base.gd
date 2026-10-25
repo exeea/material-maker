@@ -554,7 +554,16 @@ func render(object: Object, output_index : int, size : int, preview : bool = fal
 	renderer = await renderer.render_shader(object, shader, size, output_type != "rgba")
 	return renderer
 
-func render_output_to_texture(output_index : int, size : Vector2i) -> MMTexture:
+# Set while an export writes 8-bit maps with exactly rounded codes (--exact-8bit)
+static var exact_8bit_export : bool = false
+
+# A map for an export file: exactly rounded codes when exact_8bit_export is set and the file holds 8-bit values
+func render_output_for_export(output_index : int, size : Vector2i, file_name : String) -> MMTexture:
+	return await render_output_to_texture(output_index, size, exact_8bit_export and file_name.get_extension().to_lower() in [ "png", "jpg", "jpeg", "webp" ])
+
+# With exact_8bit, the output is rendered in 32-bit floats and each value moved to the centre of its nearest
+# 8-bit code, so the conversion to 8 bits, which truncates, writes the nearest code
+func render_output_to_texture(output_index : int, size : Vector2i, exact_8bit : bool = false) -> MMTexture:
 	var context : MMGenContext = MMGenContext.new()
 	var source : ShaderCode = get_shader_code("uv", output_index, context)
 	if source.output_type == "f":
@@ -570,8 +579,10 @@ func render_output_to_texture(output_index : int, size : Vector2i) -> MMTexture:
 		source.code = ""
 		source.output_values.rgba = "preview_2d(uv)"
 		source.output_type = "rgba"
+	if exact_8bit:
+		source.output_values.rgba = "((floor(clamp(%s, vec4(0.0), vec4(1.0))*255.0+0.5)+0.5)/255.0)" % source.output_values.rgba
 	var compute_shader : MMComputeShader = MMComputeShader.new()
-	var shader_status : bool = await compute_shader.set_shader_from_shadercode(source, false)
+	var shader_status : bool = await compute_shader.set_shader_from_shadercode(source, exact_8bit)
 	var texture : MMTexture = MMTexture.new()
 	if shader_status:
 		var status = await compute_shader.render_ext([texture], size)

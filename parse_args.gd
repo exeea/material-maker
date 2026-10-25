@@ -129,6 +129,8 @@ func _ready():
 				"--output-file":
 					i += 1
 					output_file = OS.get_cmdline_args()[i]
+				"--exact-8bit":
+					MMGenBase.exact_8bit_export = true
 				"--size":
 					i += 1
 					image_size = int(OS.get_cmdline_args()[i])

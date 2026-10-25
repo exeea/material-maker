@@ -10,6 +10,8 @@ var links = {}
 @onready var grid = $Controls
 
 
+const MCPTools = preload("res://addons/material_maker_mcp/mcp_tools.gd")
+
 func _ready():
 	super._ready()
 
@@ -160,15 +162,14 @@ func on_param_name_changed(new_name : String, param_name : String, line_edit : L
 	else:
 		line_edit.add_theme_color_override("font_color", Color(1.0, 0.0, 0.0))
 
+# Also renames $name in the expressions of the graph, and for a subgraph its value and the controls linked
+# to it, in one undo step (the MCP's rename_parameter)
 func on_param_name_entered(new_name : String, param_name : String, _line_edit : LineEdit) -> void:
-	old_state = generator.serialize().duplicate(true)
-	generator.rename(param_name, new_name)
-	undo_redo_register_change("Change parameter name", old_state)
+	if new_name != param_name and generator.rename(param_name, new_name, true):
+		await MCPTools.apply_parameter_edit_step(get_parent(), { op="rename_parameter", node=generator.name, name=param_name, new_name=new_name }, "Change parameter name")
 
 func on_param_name_entered2(param_name : String, line_edit : LineEdit) -> void:
-	old_state = generator.serialize().duplicate(true)
 	on_param_name_entered(line_edit.text, param_name, line_edit)
-	undo_redo_register_change("Change parameter name", old_state)
 
 func on_label_changed(new_label, param_name) -> void:
 	old_state = generator.serialize().duplicate(true)

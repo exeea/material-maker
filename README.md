@@ -73,7 +73,7 @@ by its first comment.
 | `apply_edits` | Several edits (add, connect, disconnect, remove, set, and exposed parameters: add, update, rename, remove) in one call and one undo step |
 | `add_node`, `connect_nodes`, `disconnect_nodes`, `remove_node`, `set_parameters` | Single edits |
 | `render_node` | Render a node output, or a map of the Material node, as an image |
-| `render_preview`, `render_sweep` | Render the material lit on a sphere or a square, or tiled 3x3 to check seams; a contact sheet across values of one parameter |
+| `render_preview`, `render_sweep` | Render the material lit on a sphere or a square, tiled 3x3 to check seams, or as MegaMek's ground shader samples the exported maps (each read twice, the second larger, turned and blended in); a contact sheet across values of one parameter |
 | `export_material` | Export the texture maps of a project or of a `.ptex` file |
 | `verify_export` | Export projects into a temporary folder and compare them with the shipped maps and `.tres`: identical, or the texels that differ and the largest difference |
 | `edit_files` | Apply the same edits to many `.ptex` files without opening them: nodes (add, connect, remove with bridging), values (also computed from each project's parameters), exposed parameters (add, rename, remove, kept consistent), comments, image paths, graph names and copies of a shared subgraph (kept in sync with a master, local edits reported); reports each file's changes and saves it in its own layout |
@@ -82,6 +82,11 @@ by its first comment.
 
 The server only accepts connections from this computer. Material Maker's window must stay open, because
 rendering uses the GPU.
+
+Exported 8-bit maps (PNG, JPG, WebP) are rendered in 16-bit floats and truncated. `exact_8bit` on `export_material`
+and `verify_export`, or `--exact-8bit` with `--export-material`, renders them in 32-bit floats and writes the
+nearest code. Renaming an exposed parameter, in a remote node or with the tools, also renames its `$name` in
+expressions, the subgraph node's value and the controls linked to it, in one undo step.
 
 ### Several agents at once
 
