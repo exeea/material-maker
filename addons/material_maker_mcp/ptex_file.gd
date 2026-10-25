@@ -17,6 +17,8 @@ var missing : bool = false
 # The copies sync_subgraph replaced, for edit_files to compare across files:
 # { subgraph, copy, master } with each normalized (see normalized())
 var synced : Array = []
+# The names add edits asked for, and the names they got, so later edits can use the names they asked for
+var names : Dictionary = {}
 
 # Names an expression can use besides variables and functions
 const EXPRESSION_WORDS : PackedStringArray = [ "PI", "TAU", "INF", "NAN", "true", "false", "null", "and", "or", "not", "in" ]
@@ -77,10 +79,110 @@ func apply(edit : Dictionary) -> String:
 			return rename_graph(str(edit.get("name", path.get_file().get_basename())))
 		"sync_subgraph":
 			return sync_subgraph(subgraph, edit)
-	return "Unknown op '%s': use set, add_parameter, update_parameter, rename_parameter, remove_parameter, relink, rename_graph or sync_subgraph" % edit.get("op", "")
+		"add":
+			return add_node(graph, subgraph, edit)
+		"connect":
+			return connect_ports(graph, subgraph, edit)
+		"disconnect":
+			return disconnect_ports(graph, subgraph, edit)
+		"remove":
+			return remove_node(graph, subgraph, edit)
+	return "Unknown op '%s': use set, add, connect, disconnect, remove, add_parameter, update_parameter, rename_parameter, remove_parameter, relink, rename_graph or sync_subgraph" % edit.get("op", "")
+
+# A node of the data in edit.data (the tool resolves library items), with a name not taken yet
+func add_node(graph : Dictionary, subgraph : String, edit : Dictionary) -> String:
+	var node : Dictionary = edit.get("data", { type=str(edit.get("node", "")) }).duplicate(true)
+	var asked : String = str(edit.get("name", node.get("name", node.get("type", "node"))))
+	var name : String = asked
+	var i : int = 2
+	while find_node(graph, name) != null:
+		name = "%s_%d" % [ asked, i ]
+		i += 1
+	node.name = name
+	node.node_position = { x=like(0, edit.get("x", 0)), y=like(0, edit.get("y", 0)) }
+	if edit.get("parameters") is Dictionary:
+		if not node.has("parameters"):
+			node.parameters = {}
+		for p in edit.parameters.keys():
+			node.parameters[p] = edit.parameters[p]
+			checks.append({ node=node_path(subgraph, name), parameter=p })
+	graph.nodes.append(node)
+	names[asked] = name
+	changes.append("%s: added (%s)" % [ node_path(subgraph, name), edit.get("node", "") ])
+	return ""
+
+func connect_ports(graph : Dictionary, subgraph : String, edit : Dictionary) -> String:
+	var connection : Dictionary = connection_of(edit)
+	for n in [ connection.from, connection.to ]:
+		if find_node(graph, n) == null:
+			missing = true
+			return "No node named '%s'" % n
+	# Like the editor, a connection replaces the one into that input
+	var replaced : String = ""
+	for c in graph.get("connections", []).duplicate():
+		if c.get("to") == connection.to and int(c.get("to_port", 0)) == connection.to_port:
+			replaced = ", instead of %s" % wire(c)
+			graph.connections.erase(c)
+	if not graph.has("connections"):
+		graph.connections = []
+	graph.connections.append(connection)
+	changes.append("%s: connected %s%s" % [ subgraph if subgraph != "" else "top level", wire(connection), replaced ])
+	return ""
+
+func disconnect_ports(graph : Dictionary, subgraph : String, edit : Dictionary) -> String:
+	var connection : Dictionary = connection_of(edit)
+	for c in graph.get("connections", []):
+		if wire(c) == wire(connection):
+			graph.connections.erase(c)
+			changes.append("%s: disconnected %s" % [ subgraph if subgraph != "" else "top level", wire(connection) ])
+			return ""
+	missing = true
+	return "There is no connection %s" % wire(connection)
+
+# Removes a node and its connections. With bridge (true for ports [ 0, 0 ], or [ input, output ]), what was
+# connected to that input is connected instead to whatever used that output.
+func remove_node(graph : Dictionary, subgraph : String, edit : Dictionary) -> String:
+	var name : String = names.get(str(edit.get("node", "")), str(edit.get("node", "")))
+	var node = find_node(graph, name)
+	if node == null:
+		missing = true
+		return "No node named '%s'" % name
+	if name in [ "gen_inputs", "gen_outputs", "gen_parameters" ]:
+		return "%s belongs to its subgraph and cannot be removed" % name
+	var bridged : PackedStringArray = []
+	var bridge = edit.get("bridge", false)
+	if bridge is bool and bridge or bridge is Array:
+		var ports : Array = bridge if bridge is Array and bridge.size() == 2 else [ 0, 0 ]
+		var source = null
+		for c in graph.get("connections", []):
+			if c.get("to") == name and int(c.get("to_port", 0)) == int(ports[0]):
+				source = c
+		if source == null:
+			return "Nothing is connected to input %d of %s, so there is nothing to bridge" % [ int(ports[0]), name ]
+		# The connections that used the output keep their place, so the file changes little
+		for c in graph.get("connections", []):
+			if c.get("from") == name and int(c.get("from_port", 0)) == int(ports[1]):
+				c.from = source.from
+				c.from_port = source.from_port
+				bridged.append(wire(c))
+	graph.connections = graph.get("connections", []).filter(func(c): return c.get("from") != name and c.get("to") != name)
+	graph.nodes.erase(node)
+	changes.append("%s: removed%s" % [ node_path(subgraph, name), (", bridged "+", ".join(bridged)) if not bridged.is_empty() else "" ])
+	return ""
+
+func connection_of(edit : Dictionary) -> Dictionary:
+	return {
+		from=names.get(str(edit.get("from", "")), str(edit.get("from", ""))),
+		from_port=int(edit.get("from_port", 0)),
+		to=names.get(str(edit.get("to", "")), str(edit.get("to", ""))),
+		to_port=int(edit.get("to_port", 0))
+	}
+
+static func wire(c : Dictionary) -> String:
+	return "%s:%d -> %s:%d" % [ c.get("from"), int(c.get("from_port", 0)), c.get("to"), int(c.get("to_port", 0)) ]
 
 func set_values(graph : Dictionary, subgraph : String, edit : Dictionary) -> String:
-	var name : String = str(edit.get("node", ""))
+	var name : String = names.get(str(edit.get("node", "")), str(edit.get("node", "")))
 	var node = find_node(graph, name)
 	if node == null:
 		missing = true
