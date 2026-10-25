@@ -184,12 +184,22 @@ const TOOLS : Array = [
 	},
 	{
 		"name": "edit_files",
-		"description": "Applies the same edits to .ptex files without opening them, and reports per file what changed, problems the edits caused and missing images. Saves only with save, each file in its own layout, and never a file open in a tab. Each edit has an op and a subgraph path (default top level): set (node, parameters, title, text; a value can be {\"expression\": \"value * RepeatMetres\"}, where value is the current value, the parameters of the graph's remote nodes are variables, and parameter(\"Sub/node\", \"name\") reads any other); add_parameter (node: a remote node, default gen_parameters; name, label, and either min, max, step, default, value for a named parameter used as $name in expressions, or links: [{node, parameter}] for a control of other nodes' parameters); update_parameter (node, name, label, min, max, step, default); rename_parameter (node, name, new_name: also changes $name in expressions, the subgraph's value and the controls linked to it); remove_parameter (node, name; refused while expressions use it); for these three, node defaults to the remote node that has the parameter; relink (from, to: replaced in image node paths); rename_graph (name: the graph's own name and label, default the file's name). A value within 1e-9 (relative) of the old one keeps the old one, so values computed again do not change files.",
+		"description": "Applies the same edits to .ptex files without opening them, and reports per file what changed, problems the edits caused and missing images. Saves only with save, each file in its own layout, and never a file open in a tab. Each edit has an op and a subgraph path (default top level): set (node, parameters, title, text; a value can be {\"expression\": \"value * RepeatMetres\"}, where value is the current value, the parameters of the graph's remote nodes are variables, and parameter(\"Sub/node\", \"name\") reads any other); add_parameter (node: a remote node, default gen_parameters; name, label, and either min, max, step, default, value for a named parameter used as $name in expressions, or links: [{node, parameter}] for a control of other nodes' parameters); update_parameter (node, name, label, min, max, step, default); rename_parameter (node, name, new_name: also changes $name in expressions, the subgraph's value and the controls linked to it); remove_parameter (node, name; refused while expressions use it); for these three, node defaults to the remote node that has the parameter; relink (from, to: replaced in image node paths); rename_graph (name: the graph's own name and label, default the file's name); sync_subgraph (subgraph, from: a master .ptex, from_subgraph: default the same path): replaces the subgraph with the master's copy, keeping each project's name, position, seed, exposed values and their slider defaults and ranges; a copy that differs from most of the copies it replaces, beyond those, has local edits: it is reported under local_edits and replaced only with overwrite_local. A value within 1e-9 (relative) of the old one keeps the old one, so values computed again do not change files.",
 		"inputSchema": { "type": "object", "required": [ "files", "edits" ], "properties": {
 			"files": { "type": "array", "items": { "type": "string" }, "description": ".ptex paths; * and ? match any characters, / included" },
 			"edits": { "type": "array", "items": { "type": "object" } },
 			"save": { "type": "boolean", "description": "Write the files; default false only reports. A file whose edits fail is not saved; the others are." },
-			"skip_missing": { "type": "boolean", "description": "Skip files that lack a subgraph, node or parameter the edits name, instead of reporting them as errors" } } }
+			"skip_missing": { "type": "boolean", "description": "Skip files that lack a subgraph, node or parameter the edits name, instead of reporting them as errors" },
+			"overwrite_local": { "type": "boolean", "description": "Let sync_subgraph replace copies with local edits too" } } }
+	},
+	{
+		"name": "verify_export",
+		"description": "Exports .ptex projects into a temporary folder (writing nowhere else) and compares each exported file with the shipped one of the same name in maps: identical, or the texels that differ and the largest difference (0-255) of any channel; .tres lines with numbers within 1e-9 (relative) count as equal. Maps are compared as RGBA, so a map stored grey or RGB compares with its RGBA export. Also lists shipped <project>_*.png maps the export no longer writes.",
+		"inputSchema": { "type": "object", "required": [ "files", "maps" ], "properties": {
+			"files": { "type": "array", "items": { "type": "string" }, "description": ".ptex paths; * and ? match any characters, / included" },
+			"maps": { "type": "string", "description": "Folder of the shipped files (<project>_albedo.png, <project>.tres, ...)" },
+			"target": { "type": "string", "description": "Export target, default 'Godot/Godot 4 Standard'" },
+			"size": { "type": "integer", "description": "Edge length in pixels; default is each map's Size" } } }
 	},
 	{
 		"name": "quit",
@@ -938,23 +948,18 @@ func tool_export_material(args : Dictionary):
 		return "Pass a path prefix for the exported files"
 	var target : String = str(args.get("target", "Godot/Godot 4 Standard"))
 	var size : int = int(args.get("size", 0))
-	var generator : MMGenBase
+	DirAccess.make_dir_recursive_absolute(prefix.get_base_dir())
+	var start : int = int(Time.get_unix_time_from_system())
+	var exported
 	if args.get("graph_path") is String:
-		generator = await mm_loader.load_gen(args.graph_path)
-		if generator == null:
-			return "Cannot load "+args.graph_path
-		add_child(generator)
+		exported = await export_project_file(args.graph_path, prefix, target, size)
+		if exported is String:
+			return exported
 	else:
 		var graph_edit = target_graph_edit(args)
 		if graph_edit is String:
 			return graph_edit
-		generator = graph_edit.top_generator
-	DirAccess.make_dir_recursive_absolute(prefix.get_base_dir())
-	var start : int = int(Time.get_unix_time_from_system())
-	var exported : int = await ExportCommand.export_generator(generator, prefix, target, size)
-	if generator.get_parent() == self:
-		await wait_for_render_thread_idle()
-		generator.queue_free()
+		exported = await ExportCommand.export_generator(graph_edit.top_generator, prefix, target, size)
 	if exported == 0:
 		return "Nothing to export: the graph has no material or Export node"
 	var files : Array = []
@@ -964,6 +969,106 @@ func tool_export_material(args : Dictionary):
 			files.append(directory.path_join(f))
 	return { exported=exported, files=files }
 
+# Exports a .ptex file as the command line does: the number of exports, or an error message
+func export_project_file(path : String, prefix : String, target : String, size : int):
+	var generator : MMGenBase = await mm_loader.load_gen(path)
+	if generator == null:
+		return "Cannot load "+path
+	add_child(generator)
+	var exported : int = await ExportCommand.export_generator(generator, prefix, target, size)
+	await wait_for_render_thread_idle()
+	generator.queue_free()
+	return exported
+
+func tool_verify_export(args : Dictionary):
+	var paths : PackedStringArray = matching_files(args.get("files"))
+	if paths.is_empty():
+		return "No .ptex file matches files"
+	var maps : String = str(args.get("maps", "")).replace("\\", "/")
+	if not DirAccess.dir_exists_absolute(maps):
+		return "Folder '%s' does not exist" % maps
+	var reports : Array = []
+	var differing : int = 0
+	for path in paths:
+		var report : Dictionary = await verify_file(path, maps, str(args.get("target", "Godot/Godot 4 Standard")), int(args.get("size", 0)))
+		if not report.get("identical", false):
+			differing += 1
+		reports.append(report)
+	return { files=reports, differing=differing }
+
+# Exports a project into a temporary folder and compares each file with the one of the same name in maps
+func verify_file(path : String, maps : String, target : String, size : int) -> Dictionary:
+	var folder : String = OS.get_cache_dir().path_join("material_maker_verify_%d" % Time.get_ticks_usec())
+	DirAccess.make_dir_recursive_absolute(folder)
+	var name : String = path.get_file().get_basename()
+	var exported = await export_project_file(path, folder.path_join(name), target, size)
+	var results : Dictionary = {}
+	for f in DirAccess.get_files_at(folder):
+		var shipped : String = maps.path_join(f)
+		if not FileAccess.file_exists(shipped):
+			results[f] = "not shipped"
+		elif f.get_extension() == "png":
+			results[f] = compare_images(folder.path_join(f), shipped)
+		elif f.get_extension() == "tres":
+			results[f] = compare_text(folder.path_join(f), shipped)
+		else:
+			results[f] = "not compared"
+		DirAccess.remove_absolute(folder.path_join(f))
+	DirAccess.remove_absolute(folder)
+	if exported is String or exported == 0:
+		return { path=path, error=exported if exported is String else "Nothing to export: the graph has no material or Export node" }
+	# Shipped maps of this project that it no longer exports
+	for f in DirAccess.get_files_at(maps):
+		if f.begins_with(name+"_") and f.get_extension() == "png" and not results.has(f):
+			results[f] = "not exported"
+	return { path=path, identical=results.values().all(func(r): return r is String and r == "identical"), files=results }
+
+# "identical", or the texels that differ, compared as RGBA8 (so a grey or RGB file compares with an RGBA export),
+# and the largest difference of any channel (0-255)
+static func compare_images(path : String, shipped_path : String):
+	var image : Image = Image.load_from_file(path)
+	var shipped : Image = Image.load_from_file(shipped_path)
+	if image == null or shipped == null:
+		return "cannot read"
+	if image.get_size() != shipped.get_size():
+		return { size=[ image.get_width(), image.get_height() ], shipped_size=[ shipped.get_width(), shipped.get_height() ] }
+	image.convert(Image.FORMAT_RGBA8)
+	shipped.convert(Image.FORMAT_RGBA8)
+	var a : PackedByteArray = image.get_data()
+	var b : PackedByteArray = shipped.get_data()
+	if a == b:
+		return "identical"
+	# Rows are compared whole first, so few differing texels cost little
+	var row : int = image.get_width()*4
+	var differing : int = 0
+	for y in image.get_height():
+		if a.slice(y*row, (y+1)*row) == b.slice(y*row, (y+1)*row):
+			continue
+		for i in range(y*row, (y+1)*row, 4):
+			if a.decode_u32(i) != b.decode_u32(i):
+				differing += 1
+	return { differing_texels=differing, max_difference=int(image.compute_image_metrics(shipped, false).max) }
+
+# "identical", or the lines that differ; numbers within 1e-9 (relative) count as equal
+static func compare_text(path : String, shipped_path : String):
+	var lines : Array = []
+	for p in [ path, shipped_path ]:
+		lines.append(Array(FileAccess.get_file_as_string(p).split("\n")).map(func(l): return l.strip_edges()).filter(func(l): return l != ""))
+	var number : RegEx = RegEx.create_from_string("-?\\d+\\.\\d+(?:e-?\\d+)?")
+	var differing : PackedStringArray = []
+	for i in maxi(lines[0].size(), lines[1].size()):
+		var line : String = lines[0][i] if i < lines[0].size() else ""
+		var shipped : String = lines[1][i] if i < lines[1].size() else ""
+		var same : bool = number.sub(line, "#", true) == number.sub(shipped, "#", true)
+		var values : Array = number.search_all(line)
+		var shipped_values : Array = number.search_all(shipped)
+		for j in values.size() if same else 0:
+			var x : float = values[j].get_string().to_float()
+			same = same and absf(x-shipped_values[j].get_string().to_float()) <= 1e-9*maxf(1.0, absf(x))
+		if not same:
+			differing.append("%s | shipped: %s" % [ line, shipped ])
+	return "identical" if differing.is_empty() else { differing_lines=differing.size(), first=differing.slice(0, 5) }
+
 func tool_edit_files(args : Dictionary):
 	if not args.get("edits") is Array or args.edits.is_empty():
 		return "Pass a list of edits"
@@ -972,18 +1077,20 @@ func tool_edit_files(args : Dictionary):
 		return "No .ptex file matches files"
 	var open_paths : PackedStringArray = open_project_paths()
 	var reports : Array = []
+	for path in paths:
+		reports.append(await edit_file(path, args.edits, args.get("skip_missing", false)))
+	flag_local_copies(reports, args.get("overwrite_local", false))
 	var saved : int = 0
 	var skipped : int = 0
-	for path in paths:
-		var report : Dictionary = await edit_file(path, args.edits, args.get("skip_missing", false))
+	for report in reports:
 		if report.has("skipped"):
 			skipped += 1
 		var file = report.get("file")
 		report.erase("file")
-		if file != null and args.get("save", false) and not file.changes.is_empty():
+		if file != null and args.get("save", false) and not file.changes.is_empty() and not report.has("not_saved"):
 			if report.has("problems"):
 				report.not_saved = "The edits cause problems"
-			elif path.to_lower() in open_paths:
+			elif report.path.to_lower() in open_paths:
 				report.not_saved = "Open in a tab: close it first"
 			else:
 				var error : String = file.save()
@@ -992,8 +1099,41 @@ func tool_edit_files(args : Dictionary):
 					saved += 1
 				else:
 					report.error = error
-		reports.append(report)
 	return { files=reports, saved=saved, skipped=skipped }
+
+# A copy sync_subgraph replaces that differs from most of the copies it replaces (beyond what each project
+# sets) holds local edits: they are reported, and the file is only saved with overwrite_local
+static func flag_local_copies(reports : Array, overwrite_local : bool) -> void:
+	var counts : Dictionary = {}
+	var copies : Dictionary = {}
+	for report in reports:
+		for s in report.get("file").synced if report.get("file") != null else []:
+			var key : String = PtexFile.fingerprint(s.copy)
+			if not counts.has(s.subgraph):
+				counts[s.subgraph] = {}
+			counts[s.subgraph][key] = counts[s.subgraph].get(key, 0)+1
+			copies[key] = s.copy
+	for report in reports:
+		for s in report.get("file").synced if report.get("file") != null else []:
+			var key : String = PtexFile.fingerprint(s.copy)
+			if key == PtexFile.fingerprint(s.master):
+				continue
+			# The copy more than half the files share, else the master
+			var common : String = ""
+			for k in counts[s.subgraph].keys():
+				if counts[s.subgraph][k] > counts[s.subgraph].get(common, 0):
+					common = k
+			var total : int = counts[s.subgraph].values().reduce(func(a, b): return a+b, 0)
+			if counts[s.subgraph][common]*2 <= total:
+				common = ""
+			if key == common:
+				continue
+			var reference : Dictionary = copies[common] if common != "" else s.master
+			if not report.has("local_edits"):
+				report.local_edits = {}
+			report.local_edits[s.subgraph] = PtexFile.subgraph_differences(s.copy, reference)
+			if not overwrite_local:
+				report.not_saved = "Its copy of %s differs from %s: pass overwrite_local to replace it" % [ s.subgraph, "most copies" if common != "" else "the master" ]
 
 # Applies edits to one .ptex file's data: a report with path, changes and the problems the edits caused,
 # and the edited file (unsaved) unless an edit failed

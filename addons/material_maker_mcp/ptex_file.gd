@@ -14,6 +14,9 @@ var changes : PackedStringArray = []
 var checks : Array = []
 # Whether the last error is about something this file does not have (a subgraph, node or parameter)
 var missing : bool = false
+# The copies sync_subgraph replaced, for edit_files to compare across files:
+# { subgraph, copy, master } with each normalized (see normalized())
+var synced : Array = []
 
 # Names an expression can use besides variables and functions
 const EXPRESSION_WORDS : PackedStringArray = [ "PI", "TAU", "INF", "NAN", "true", "false", "null", "and", "or", "not", "in" ]
@@ -72,7 +75,9 @@ func apply(edit : Dictionary) -> String:
 			return relink(str(edit.get("from", "")), str(edit.get("to", "")))
 		"rename_graph":
 			return rename_graph(str(edit.get("name", path.get_file().get_basename())))
-	return "Unknown op '%s': use set, add_parameter, update_parameter, rename_parameter, remove_parameter, relink or rename_graph" % edit.get("op", "")
+		"sync_subgraph":
+			return sync_subgraph(subgraph, edit)
+	return "Unknown op '%s': use set, add_parameter, update_parameter, rename_parameter, remove_parameter, relink, rename_graph or sync_subgraph" % edit.get("op", "")
 
 func set_values(graph : Dictionary, subgraph : String, edit : Dictionary) -> String:
 	var name : String = str(edit.get("node", ""))
@@ -350,6 +355,122 @@ func rename_graph(name : String) -> String:
 		data.name = name
 		changes.append("graph name: %s -> %s" % [ old, name ])
 	return ""
+
+# Replaces a subgraph with a master project's copy (at from_subgraph, by default the same path). The copy keeps
+# what each project sets: its name, position, seed and the values of its exposed parameters.
+func sync_subgraph(subgraph : String, edit : Dictionary) -> String:
+	if subgraph == "":
+		return "Pass the subgraph to replace"
+	var master = get_script().new()
+	var error : String = master.read(str(edit.get("from", "")))
+	if error != "":
+		return error
+	var source = master.graph_at(str(edit.get("from_subgraph", subgraph)))
+	if source == null or is_same(source, master.data):
+		return "%s has no subgraph '%s'" % [ master.path, edit.get("from_subgraph", subgraph) ]
+	var parent : Dictionary = graph_at(subgraph.get_base_dir())
+	var copy : Dictionary = find_node(parent, subgraph.get_file())
+	var replacement : Dictionary = source.duplicate(true)
+	for key in PROJECT_KEYS:
+		if copy.has(key):
+			replacement[key] = copy[key]
+	var values : Dictionary = replacement.get("parameters", {})
+	var new_values : PackedStringArray = []
+	for k in values.keys():
+		if copy.get("parameters", {}).has(k):
+			values[k] = copy.parameters[k]
+		else:
+			new_values.append(k)
+	var parameters_node = find_node(replacement, "gen_parameters")
+	for k in values.keys() if parameters_node != null else []:
+		if parameters_node.get("parameters", {}).has(k):
+			parameters_node.parameters[k] = values[k]
+	# A project's sliders keep their default and range
+	var copy_parameters = find_node(copy, "gen_parameters")
+	for w in parameters_node.get("widgets", []) if parameters_node != null and copy_parameters != null else []:
+		var own = find_widget(copy_parameters, w.get("name", ""))
+		for key in WIDGET_VALUES if own != null else []:
+			if own.has(key):
+				w[key] = own[key]
+	var dropped : PackedStringArray = []
+	for k in copy.get("parameters", {}).keys():
+		if not values.has(k):
+			dropped.append(k)
+	synced.append({ subgraph=subgraph, copy=normalized(copy), master=normalized(replacement) })
+	if fingerprint(copy) == fingerprint(replacement):
+		return ""
+	parent.nodes[parent.nodes.find(copy)] = replacement
+	# Floats copied from the master are written as the master writes them
+	for value in master.literals.keys():
+		if not literals.has(value):
+			literals[value] = master.literals[value]
+	var change : String = "%s: replaced from %s" % [ subgraph, master.path.get_file() ]
+	var differences : PackedStringArray = subgraph_differences(normalized(copy), normalized(replacement))
+	change += " (%s)" % ("; ".join(differences) if not differences.is_empty() else "same nodes, other values")
+	if not new_values.is_empty():
+		change += ", new values from the master: "+", ".join(new_values)
+	if not dropped.is_empty():
+		change += ", dropped values: "+", ".join(dropped)
+	changes.append(change)
+	return ""
+
+# What each project sets on a subgraph node, and on the sliders of its exposed parameters
+const PROJECT_KEYS : PackedStringArray = [ "name", "node_position", "seed_int", "seed", "seed_locked" ]
+const WIDGET_VALUES : PackedStringArray = [ "default", "min", "max", "step" ]
+
+# A subgraph without what each project sets on it, its exposed values and their sliders included
+static func normalized(graph : Dictionary) -> Dictionary:
+	var result : Dictionary = graph.duplicate(true)
+	for key in PROJECT_KEYS:
+		result.erase(key)
+	result.erase("parameters")
+	var parameters_node = find_node(result, "gen_parameters")
+	if parameters_node != null:
+		parameters_node.erase("parameters")
+		for w in parameters_node.get("widgets", []):
+			for key in WIDGET_VALUES:
+				w.erase(key)
+	return result
+
+# Data as text, ints and floats alike
+static func fingerprint(value) -> String:
+	return JSON.stringify(as_floats(value), "", true)
+
+static func as_floats(value):
+	if value is Dictionary:
+		var result : Dictionary = {}
+		for k in value.keys():
+			result[k] = as_floats(value[k])
+		return result
+	if value is Array:
+		return value.map(func(v): return as_floats(v))
+	return float(value) if value is int else value
+
+# How a subgraph (a) differs from another (b), node by node
+static func subgraph_differences(a : Dictionary, b : Dictionary) -> PackedStringArray:
+	var result : PackedStringArray = []
+	var nodes : Array = [ {}, {} ]
+	for i in 2:
+		for n in [ a, b ][i].get("nodes", []):
+			nodes[i][n.get("name")] = n
+	for name in nodes[0].keys():
+		if not nodes[1].has(name):
+			result.append("only in the copy: "+name)
+		elif fingerprint(nodes[0][name]) != fingerprint(nodes[1][name]):
+			result.append("changed: "+name)
+	for name in nodes[1].keys():
+		if not nodes[0].has(name):
+			result.append("only in the master: "+name)
+	var connections : Array = []
+	for g in [ a, b ]:
+		connections.append(g.get("connections", []).map(func(c): return fingerprint(c)))
+	var differing : int = connections[0].filter(func(c): return not c in connections[1]).size()+connections[1].filter(func(c): return not c in connections[0]).size()
+	if differing > 0:
+		result.append("%d connections differ" % differing)
+	for key in a.keys():
+		if key != "nodes" and key != "connections" and fingerprint(a[key]) != fingerprint(b.get(key)):
+			result.append("changed: "+key)
+	return result
 
 func missing_images() -> PackedStringArray:
 	var missing : PackedStringArray = []
