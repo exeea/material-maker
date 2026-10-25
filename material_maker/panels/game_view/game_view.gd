@@ -11,6 +11,8 @@ const MAPS : Dictionary = { albedo_map=0, orm_map=1, normal_map=3 }
 const HEX_METRES : float = 30.0
 const REPEAT_METRES : float = 12.0
 const VIEW_METRES : float = 90.0
+# The Material node's settings for the shader's factors (their .tres names: normal_scale, roughness, metallic)
+const SETTINGS : Dictionary = { normal_scale="normal", roughness_factor="roughness", metallic_factor="metallic" }
 
 var ground : ShaderMaterial = ShaderMaterial.new()
 var environment : Environment = Environment.new()
@@ -47,6 +49,13 @@ func set_view(hex_metres : float, repeat_metres : float, view_metres : float, gr
 	ground.set_shader_parameter("view_metres", view_metres)
 	ground.set_shader_parameter("grid", grid)
 
+# The settings the export writes into the .tres and the game applies: albedo_color, normal_scale, roughness, metallic
+func update_settings(material : MMGenMaterial) -> void:
+	var tint = material.get_parameter("albedo_color")
+	ground.set_shader_parameter("albedo_tint", Color(tint.r, tint.g, tint.b, tint.a))
+	for uniform in SETTINGS.keys():
+		ground.set_shader_parameter(uniform, material.calculate_float_parameter(SETTINGS[uniform]).get("value", 1.0))
+
 # Renders the maps at the material's export size, 8-bit with mipmaps, as the game loads the exported PNGs
 func update_maps(material : MMGenMaterial) -> void:
 	if not environment_applied:
@@ -56,6 +65,7 @@ func update_maps(material : MMGenMaterial) -> void:
 	await mm_deps.wait_for_render_queue()
 	if not is_instance_valid(material):
 		return
+	update_settings(material)
 	var map_size : int = material.get_image_size()
 	for map in MAPS.keys():
 		var image : Image = await material.render_output(MAPS[map], Vector2i(map_size, map_size))

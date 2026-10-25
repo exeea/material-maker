@@ -30,6 +30,9 @@ var default_material_layout := {
 
 var default_paint_layout : Dictionary = { main={ children=[ { children=[ { children=[], current=0, h=766.0, tabs=["Brushes"], type="FlexTab", w=279.0 }, { children=[], h=766.0, type="FlexMain", w=844.0 }, { children=[ { children=[], current=0, h=370.0, tabs=["Parameters"], type="FlexTab", w=240.0 }, { children=[], current=0, h=386.0, tabs=["Layers"], type="FlexTab", w=240.0 }], dir="v", h=766.0, type="FlexSplit", w=240.0 }], dir="h", h=766.0, type="FlexSplit", w=1383.0 }], h=766.0, type="FlexTop", w=1383.0 }, windows=[] }
 
+# Panels newer than layouts users saved: each joins the 3D preview's tabs once
+const NEW_PANELS : Array[String] = [ "GameView" ]
+
 const HIDE_PANELS : Dictionary[String, Array] = {
 	"material": [ "Brushes", "Layers", "Parameters" ],
 	"paint": [ "Preview3D", "GameView", "Histogram", "Hierarchy" ]
@@ -78,6 +81,13 @@ func load_panels() -> void:
 		elif mode == "paint":
 			layout[mode] = default_paint_layout
 	$FlexibleLayout.init(layout[current_mode] if layout.has(current_mode) else null)
+	for panel_name in NEW_PANELS:
+		if not mm_globals.config.get_value("layout", "added_"+panel_name, false):
+			mm_globals.config.set_value("layout", "added_"+panel_name, true)
+			var preview_tabs = panels.Preview3D.get_meta("flex_node", null)
+			if not is_panel_visible(panel_name) and preview_tabs != null and preview_tabs.has_method("set_current"):
+				preview_tabs.add(panels[panel_name])
+				preview_tabs.set_current(panels.Preview3D)
 
 	# Restore layout presets
 	var preset_keys : PackedStringArray

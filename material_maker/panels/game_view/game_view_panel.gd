@@ -29,12 +29,18 @@ func _ready() -> void:
 	grid_box.button_pressed = true
 	grid_box.toggled.connect(func(_on): update_view())
 	controls.add_child(grid_box)
-	var container : SubViewportContainer = SubViewportContainer.new()
-	container.stretch = true
-	container.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	container.gui_input.connect(on_view_gui_input)
-	container.add_child(game_view)
-	add_child(container)
+	# Rendered at the screen's pixels: a SubViewportContainer would render it at the size of the UI before its scale
+	game_view.render_target_update_mode = SubViewport.UPDATE_WHEN_PARENT_VISIBLE
+	add_child(game_view)
+	var view : TextureRect = TextureRect.new()
+	view.texture = game_view.get_texture()
+	view.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	view.stretch_mode = TextureRect.STRETCH_SCALE
+	view.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	view.mouse_filter = Control.MOUSE_FILTER_STOP
+	view.gui_input.connect(on_view_gui_input)
+	view.resized.connect(func(): game_view.size = Vector2i((view.size*mm_globals.ui_scale_factor()).max(Vector2.ONE)))
+	add_child(view)
 	update_view()
 
 func add_float_edit(parent : Control, text : String, tooltip : String, min_value : float, max_value : float, value : float) -> FloatEdit:
@@ -77,10 +83,16 @@ func show_material(generator : MMGenMaterial) -> void:
 	if generator != current_material:
 		if is_instance_valid(current_material):
 			current_material.preview_texture_updated.disconnect(on_maps_changed)
+			current_material.parameter_changed.disconnect(on_parameter_changed)
 		if generator != null:
 			generator.preview_texture_updated.connect(on_maps_changed)
+			generator.parameter_changed.connect(on_parameter_changed)
 		current_material = generator
 	on_maps_changed()
+
+# The Material node's own settings (its tint, normal strength...) change no map
+func on_parameter_changed(_name : String, _value) -> void:
+	game_view.update_settings(current_material)
 
 func on_maps_changed() -> void:
 	maps_outdated = true
