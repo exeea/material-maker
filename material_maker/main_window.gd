@@ -297,12 +297,26 @@ func _input(event: InputEvent) -> void:
 			_:
 				get_window().mode = Window.MODE_MAXIMIZED
 
-func on_config_changed() -> void:
-	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_ENABLED if (mm_globals.get_config("vsync")) else DisplayServer.VSYNC_DISABLED)
+# The FPS is limited further while the application is unfocused, to decrease CPU/GPU usage, except while
+# full_speed is set (during MCP tool calls)
+var application_focused : bool = true
+var full_speed : bool = false:
+	set(value):
+		full_speed = value
+		update_fps_limit()
+
+func update_fps_limit() -> void:
 	# Convert FPS to microseconds per frame.
 	# Clamp the FPS to reasonable values to avoid locking up the UI.
+	var fps : float = clamp(mm_globals.get_config("fps_limit"), FPS_LIMIT_MIN, FPS_LIMIT_MAX)
+	if not application_focused and not full_speed:
+		fps = clamp(mm_globals.get_config("idle_fps_limit"), IDLE_FPS_LIMIT_MIN, IDLE_FPS_LIMIT_MAX)
 	@warning_ignore("narrowing_conversion")
-	OS.low_processor_usage_mode_sleep_usec = (1.0 / clamp(mm_globals.get_config("fps_limit"), FPS_LIMIT_MIN, FPS_LIMIT_MAX)) * 1_000_000
+	OS.low_processor_usage_mode_sleep_usec = (1.0 / fps) * 1_000_000
+
+func on_config_changed() -> void:
+	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_ENABLED if (mm_globals.get_config("vsync")) else DisplayServer.VSYNC_DISABLED)
+	update_fps_limit()
 	# locale
 	var locale = mm_globals.get_config("locale")
 	if locale != "" and locale != TranslationServer.get_locale():
@@ -1298,6 +1312,7 @@ func show_example_projects() -> void:
 func update_preview() -> void:
 	update_preview_2d()
 	update_preview_3d([ preview_3d, projects_panel.preview_3d_background ])
+	get_panel("GameView").show_material(current_gen_material)
 
 func get_current_node(graph_edit : MMGraphEdit) -> Node:
 	for n in graph_edit.get_children():
@@ -1377,13 +1392,11 @@ func on_group_selected(generator) -> void:
 func _notification(what : int) -> void:
 	match what:
 		MainLoop.NOTIFICATION_APPLICATION_FOCUS_OUT:
-			# Limit FPS to decrease CPU/GPU usage while the window is unfocused.
-			@warning_ignore("narrowing_conversion")
-			OS.low_processor_usage_mode_sleep_usec = (1.0 / clamp(mm_globals.get_config("idle_fps_limit"), IDLE_FPS_LIMIT_MIN, IDLE_FPS_LIMIT_MAX)) * 1_000_000
+			application_focused = false
+			update_fps_limit()
 		MainLoop.NOTIFICATION_APPLICATION_FOCUS_IN:
-			# Return to the normal FPS limit when the window is focused.
-			@warning_ignore("narrowing_conversion")
-			OS.low_processor_usage_mode_sleep_usec = (1.0 / clamp(mm_globals.get_config("fps_limit"), FPS_LIMIT_MIN, FPS_LIMIT_MAX)) * 1_000_000
+			application_focused = true
+			update_fps_limit()
 		NOTIFICATION_WM_ABOUT:
 			about.call_deferred()
 		NOTIFICATION_THEME_CHANGED:

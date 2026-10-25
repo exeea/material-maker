@@ -20,6 +20,7 @@ const GRAPH_ARGUMENTS : Dictionary = {
 	"graph": { "type": "object", "description": "A graph in Material Maker's .ptex JSON format" },
 	"path": { "type": "string", "description": "Path of a .ptex file (used instead of graph)" }
 }
+const GAME_ARGUMENT : Dictionary = { "type": "object", "description": "Game view scale in metres: hex_metres (width of a hex from point to point, default 30 as in MegaMek), repeat_metres (ground one repeat of the maps covers, default 12), view_metres (width of the image, default 90); grid (draw the hexes, default true)" }
 const TAB_ARGUMENT : Dictionary = { "type": "integer", "description": "Handle of the tab to work on, from load_graph, new_graph or get_graph; default the current tab" }
 const EXACT_8BIT_ARGUMENT : Dictionary = { "type": "boolean", "description": "Write 8-bit maps (PNG, JPG, WebP) with exactly rounded codes, rendered in 32-bit floats (the command line's --exact-8bit); by default Material Maker renders them in 16-bit floats and truncates" }
 const COMMENT_TITLE_ARGUMENT : Dictionary = { "type": "string", "description": "Title of a comment node" }
@@ -152,10 +153,10 @@ const TOOLS : Array = [
 	},
 	{
 		"name": "render_preview",
-		"description": "Renders a tab's material lit like the 3D preview: on a sphere, on a square seen at an angle (one repeat), tiled 3x3 seen from above to check seams and repetition, or seen from above as MegaMek's ground shader samples the exported maps (game: each map read twice, the second read larger, turned and blended in by a smooth field). Returns the image (up to 1024 pixels) and can save it as PNG.",
+		"description": "Renders a tab's material lit like the 3D preview: on a sphere, on a square seen at an angle (one repeat), tiled 3x3 seen from above to check seams and repetition, or seen from above as MegaMek's ground shader samples the exported maps, with its hexes (game, as the Game View panel shows it: each map read twice, the second read larger, turned and blended in by a smooth field). Returns the image (up to 1024 pixels) and can save it as PNG.",
 		"inputSchema": { "type": "object", "properties": {
 			"view": { "type": "string", "enum": [ "sphere", "plane", "tiled", "game" ], "description": "Default sphere" },
-			"repeats": { "type": "number", "description": "Game view: repeats of the maps across the image, default 4" },
+			"game": GAME_ARGUMENT,
 			"size": { "type": "integer", "description": "Edge length in pixels, default 512" },
 			"path": { "type": "string", "description": "PNG file to save the render to" },
 			"tab": TAB_ARGUMENT } }
@@ -168,6 +169,7 @@ const TOOLS : Array = [
 			"parameter": { "type": "string" },
 			"values": { "type": "array", "description": "1 to 16 values, in the format of set_parameters" },
 			"view": { "type": "string", "enum": [ "output", "sphere", "plane", "tiled", "game" ], "description": "What each cell shows, default output (the node's output)" },
+			"game": GAME_ARGUMENT,
 			"port": { "type": "integer", "description": "Output index for the output view, default 0" },
 			"size": { "type": "integer", "description": "Edge length of each cell in pixels, default 256" },
 			"path": { "type": "string", "description": "PNG file to save the sheet to" },
@@ -799,8 +801,7 @@ func tool_render_preview(args : Dictionary):
 	if not view in PREVIEW_VIEWS:
 		return "view must be one of: "+", ".join(PackedStringArray(PREVIEW_VIEWS))
 	var size : int = clampi(int(args.get("size", 512)), 64, 2048)
-	var repeats : float = clampf(float(args.get("repeats", 4.0)), 0.25, 64.0)
-	var image : Image = await render_preview_image(material, view, size, repeats)
+	var image : Image = await render_preview_image(material, view, size, args.get("game", {}))
 	return image_result(image, args, { view=view, size=size })
 
 func tool_render_sweep(args : Dictionary):
@@ -835,7 +836,7 @@ func tool_render_sweep(args : Dictionary):
 		if view == "output":
 			images.append(await render_output_image(generator, port, size))
 		else:
-			images.append(await render_preview_image(material, view, size))
+			images.append(await render_preview_image(material, view, size, args.get("game", {})))
 	generator.set_parameter(parameter, MMType.deserialize_value(original))
 	const GAP : int = 4
 	var columns : int = ceili(sqrt(images.size()))
@@ -872,52 +873,19 @@ func image_result(image : Image, args : Dictionary, result : Dictionary):
 		result.image = image.save_png_to_buffer()
 	return result
 
-# 3D previews: the material on a sphere, on a square seen at an angle, tiled 3x3 seen from above, or seen
-# from above as the game samples its exported maps.
-# Their own scene, lit like the 3D preview panel, so the panel and its settings stay untouched.
+# 3D previews: the material on a sphere, on a square seen at an angle, or tiled 3x3 seen from above, in their own scene
+# lit like the 3D preview panel, so the panel and its settings stay untouched; or seen as in the game, the Game View
+# panel's scene rendered offscreen.
 
 const PREVIEW_VIEWS : Array[String] = [ "sphere", "plane", "tiled", "game" ]
-
-# The game view samples the exported maps like MegaMek's ground shader does: every map read twice, the second
-# read 2.37 times larger, turned by 34 degrees and offset, blended by a smooth field. An approximation for scale
-# and repetition: the game's colour grading, parallax and material families are not reproduced.
-const GAME_VIEW_SHADER : String = """
-shader_type spatial;
-uniform sampler2D albedo_map : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
-uniform sampler2D orm_map : filter_linear_mipmap_anisotropic, repeat_enable;
-uniform sampler2D normal_map : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
-uniform float repeats = 4.0;
-const mat2 TURN = mat2(vec2(.8253, .5646), vec2(-.5646, .8253));
-float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7)))*43758.5453); }
-float noise(vec2 p) {
-	vec2 i = floor(p), f = fract(p);
-	f = f*f*(3.0-2.0*f);
-	return mix(mix(hash(i), hash(i+vec2(1.0, 0.0)), f.x), mix(hash(i+vec2(0.0, 1.0)), hash(i+vec2(1.0, 1.0)), f.x), f.y);
-}
-void fragment() {
-	vec2 a = UV*repeats;
-	vec2 b = TURN*a/2.37+.31;
-	float t = smoothstep(.2, .8, noise(UV*repeats*.35)*.65+noise(UV*repeats*.9+.19)*.35);
-	ALBEDO = mix(texture(albedo_map, a).rgb, texture(albedo_map, b).rgb, t);
-	vec3 orm = mix(texture(orm_map, a).rgb, texture(orm_map, b).rgb, t);
-	AO = orm.r;
-	ROUGHNESS = orm.g;
-	METALLIC = orm.b;
-	vec3 na = texture(normal_map, a).rgb*2.0-1.0;
-	vec3 nb = texture(normal_map, b).rgb*2.0-1.0;
-	nb.xy = transpose(TURN)*nb.xy;
-	NORMAL_MAP = normalize(mix(na, nb, t))*.5+.5;
-}
-"""
-# The Material node's outputs the game view reads (those of its Godot 4 Standard export)
-const GAME_VIEW_MAPS : Dictionary = { albedo_map=0, orm_map=1, normal_map=3 }
+const GameView = preload("res://material_maker/panels/game_view/game_view.gd")
 
 var preview_viewport : SubViewport
 var preview_material : ShaderMaterial
-var game_material : ShaderMaterial
 var preview_camera : Camera3D
 var preview_sphere : MeshInstance3D
 var preview_plane : MeshInstance3D
+var game_view : SubViewport
 
 func create_preview_scene() -> void:
 	preview_viewport = SubViewport.new()
@@ -952,32 +920,30 @@ func create_preview_scene() -> void:
 	preview_plane.mesh = plane_mesh
 	preview_plane.material_override = preview_material
 	preview_viewport.add_child(preview_plane)
-	game_material = ShaderMaterial.new()
-	game_material.shader = Shader.new()
-	game_material.shader.code = GAME_VIEW_SHADER
 	var environment_manager = mm_globals.main_window.get_node("EnvironmentManager")
 	await environment_manager.apply_environment(mm_globals.get_config("ui_3d_preview_environment"), environment, sun)
 
-func render_preview_image(material : MMGenMaterial, view : String, size : int, repeats : float = 4.0) -> Image:
+# game: the game view's scale (GAME_ARGUMENT)
+func render_preview_image(material : MMGenMaterial, view : String, size : int, game = {}) -> Image:
+	if view == "game":
+		if game_view == null:
+			game_view = GameView.new()
+			game_view.render_target_update_mode = SubViewport.UPDATE_DISABLED
+			add_child(game_view)
+		if not game is Dictionary:
+			game = {}
+		game_view.set_view(clampf(float(game.get("hex_metres", GameView.HEX_METRES)), 1.0, 1000.0),
+			clampf(float(game.get("repeat_metres", GameView.REPEAT_METRES)), 0.1, 1000.0),
+			clampf(float(game.get("view_metres", GameView.VIEW_METRES)), 1.0, 10000.0), game.get("grid", true) != false)
+		await game_view.update_maps(material)
+		return await capture_viewport(game_view, size)
 	if preview_viewport == null:
 		await create_preview_scene()
 	await mm_deps.wait_for_render_queue()
 	await material.update_material(preview_material)
 	preview_sphere.visible = view == "sphere"
 	preview_plane.visible = view != "sphere"
-	preview_plane.material_override = game_material if view == "game" else preview_material
 	match view:
-		"game":
-			# At the export size, 8-bit with mipmaps, as the game loads the exported PNGs
-			for map in GAME_VIEW_MAPS.keys():
-				var map_image : Image = await render_output_image(material, GAME_VIEW_MAPS[map], material.get_image_size())
-				map_image.convert(Image.FORMAT_RGBA8)
-				map_image.generate_mipmaps()
-				game_material.set_shader_parameter(map, ImageTexture.create_from_image(map_image))
-			game_material.set_shader_parameter("repeats", repeats)
-			preview_camera.projection = Camera3D.PROJECTION_ORTHOGONAL
-			preview_camera.size = 2
-			preview_camera.look_at_from_position(Vector3(0, 4, 0), Vector3.ZERO, Vector3.FORWARD)
 		"sphere":
 			preview_material.set_shader_parameter("uv1_scale", Vector3(4, 2, 1))
 			preview_camera.projection = Camera3D.PROJECTION_PERSPECTIVE
@@ -993,20 +959,23 @@ func render_preview_image(material : MMGenMaterial, view : String, size : int, r
 			preview_camera.projection = Camera3D.PROJECTION_ORTHOGONAL
 			preview_camera.size = 2
 			preview_camera.look_at_from_position(Vector3(0, 4, 0), Vector3.ZERO, Vector3.FORWARD)
-	preview_viewport.size = Vector2i(size, size)
-	# Render until two frames match: the first ones can miss shaders that are still compiling
-	preview_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	return await capture_viewport(preview_viewport, size)
+
+# Renders a viewport until two frames match: the first ones can miss shaders that are still compiling
+func capture_viewport(viewport : SubViewport, size : int) -> Image:
+	viewport.size = Vector2i(size, size)
+	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	var image : Image
 	var previous : PackedByteArray = PackedByteArray()
 	for frame in 40:
 		await RenderingServer.frame_post_draw
 		if frame < 2:
 			continue
-		image = preview_viewport.get_texture().get_image()
+		image = viewport.get_texture().get_image()
 		if image.get_data() == previous:
 			break
 		previous = image.get_data()
-	preview_viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
 	return image
 
 func tool_export_material(args : Dictionary):

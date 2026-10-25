@@ -35,6 +35,9 @@ const TEXTURE_FILTERING_LIMIT : int = 256
 
 const EXPORT_OUTPUT_DEF_INDEX : int = 12345
 
+# Emitted when a preview texture was rendered again: the material's maps changed
+signal preview_texture_updated
+
 
 func _ready() -> void:
 	preview_material = ShaderMaterial.new()
@@ -155,6 +158,7 @@ func on_dep_update_buffer(buffer_name) -> bool:
 	var size = get_image_size()
 	await preview_textures[texture_name].shader_compute.render(preview_textures[texture_name].texture, size)
 	mm_deps.dependency_update(preview_textures[texture_name].buffer, preview_textures[texture_name].texture, true)
+	preview_texture_updated.emit()
 	for ppn in external_previews.keys():
 		for p in external_previews[ppn]:
 			p.set_shader_parameter(texture_name, await preview_textures[texture_name].texture.get_texture())

@@ -183,9 +183,13 @@ func call_tool(tool_name : String, arguments : Dictionary) -> Dictionary:
 	print("MCP tool %s started" % tool_name)
 	var state : Dictionary = {}
 	if is_startup_finished():
+		# Tools wait for frames: unfocused, Material Maker would run them at its idle FPS limit
+		mm_globals.main_window.full_speed = true
 		(func(): state.result = await tools.call_tool(tool_name, arguments)).call()
 	while not state.has("result") and Time.get_ticks_msec()-start < TOOL_TIMEOUT_MS:
 		await get_tree().process_frame
+	if is_startup_finished():
+		mm_globals.main_window.full_speed = false
 	tool_running = false
 	var duration : int = Time.get_ticks_msec()-start
 	if not state.has("result"):
