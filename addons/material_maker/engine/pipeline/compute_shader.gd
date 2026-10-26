@@ -64,8 +64,7 @@ func set_shader_ext(string : String, output_textures_desc : Array[Dictionary] = 
 	replaces["@DECLARATIONS"] += get_output_parameters_declarations()+"\n"
 	
 	var rd : RenderingDevice = mm_renderer.rendering_device
-	# The render thread creates it after startup, and a command-line export loads at once: a buffer compiles again
-	# when it renders (a release build crashes on a call on null)
+	# The render thread creates it after startup (a release build crashes on a call on null)
 	if rd == null:
 		return false
 	shader = do_compile_shader(rd, { compute=string }, replaces)

@@ -223,12 +223,19 @@ func get_render_queue_size(include_errors : bool = true) -> int:
 			invalidated_buffers += 1
 	return invalidated_buffers
 
-# Waits until all buffers that can still render (not paused or failed) are rendered.
+# Whether a buffer's shader is being compiled: it joins the render queue only once its shader is compiled
+func buffers_compiling() -> bool:
+	for buffer : Buffer in buffers.values():
+		if is_instance_valid(buffer.object) and buffer.object.get("compiling") == true:
+			return true
+	return false
+
+# Waits until all buffers that can still render (not paused or failed) are compiled and rendered.
 # Gives up after stall_ms without progress, e.g. when a shader failed to compile.
 func wait_for_render_queue(stall_ms : int = 10000) -> void:
 	var last_progress : int = -1
 	var deadline : int = 0
-	while get_render_queue_size(false) > 0:
+	while get_render_queue_size(false) > 0 or buffers_compiling():
 		if updating or progress != last_progress:
 			last_progress = progress
 			deadline = Time.get_ticks_msec() + stall_ms

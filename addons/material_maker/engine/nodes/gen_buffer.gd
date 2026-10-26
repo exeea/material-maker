@@ -20,6 +20,10 @@ var shader_compute : MMShaderCompute
 var is_greyscale : bool = false
 
 var is_paused : bool = false
+# While its shader is being compiled (mm_deps.wait_for_render_queue waits for it), and while the render thread
+# renders it: compiling replaces the inputs a render reads, so neither starts while the other runs
+var compiling : bool = false
+var rendering : bool = false
 
 
 func _ready() -> void:
@@ -102,6 +106,9 @@ func do_update_shader() -> void:
 	if not is_node_ready():
 		await ready
 	updating_shader = false
+	compiling = true
+	while rendering:
+		await get_tree().process_frame
 	var context : MMGenContext = MMGenContext.new()
 	var source : ShaderCode
 	var source_output : OutputPort = get_source(0)
@@ -124,6 +131,7 @@ func do_update_shader() -> void:
 		mm_deps.update()
 	else:
 		print("buffer is invalid")
+	compiling = false
 
 func on_dep_update_value(buffer_name, parameter_name, value) -> bool:
 	if value != null:
@@ -133,10 +141,12 @@ func on_dep_update_value(buffer_name, parameter_name, value) -> bool:
 func on_dep_update_buffer(buffer_name : String) -> bool:
 	if is_paused:
 		return false
-	if not shader_compute.has_shader():
+	if compiling or not shader_compute.has_shader():
 		# Not compiled yet: buffer_create_compute_material invalidates this buffer again
 		return true
+	rendering = true
 	var status = await shader_compute.render(texture, pow(2, get_parameter("size")))
+	rendering = false
 	if status:
 		rendering_time = shader_compute.get_render_time()
 		self.rendering_time_updated.emit(rendering_time)

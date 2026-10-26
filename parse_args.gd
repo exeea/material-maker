@@ -174,6 +174,14 @@ func _ready():
 									expanded_files.push_back("website:"+str(mi))
 			else:
 				expanded_files.push_back(f)
+		# The render thread creates the rendering device after startup, and buffers compile their shaders as soon as
+		# they are loaded (without it, they would never render)
+		var deadline : int = Time.get_ticks_msec()+30000
+		while mm_renderer.rendering_device == null:
+			if Time.get_ticks_msec() > deadline:
+				show_error("ERROR: no rendering device")
+				return
+			await get_tree().process_frame
 		await export_files(expanded_files, output_dir, target, output_file, image_size)
 	else:
 		var no_logo : bool = ( args.find("--no-splash") != -1 )

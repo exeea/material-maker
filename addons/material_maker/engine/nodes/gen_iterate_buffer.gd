@@ -21,6 +21,8 @@ var buffer_name_loop_output : String
 var buffer_name_output : String
 var iteration_param_name : String
 var used_named_parameters : Array = []
+# While its shaders are being compiled (mm_deps.wait_for_render_queue waits for it)
+var compiling : bool = false
 
 
 func _init():
@@ -108,6 +110,7 @@ func do_update_shaders() -> void:
 		# Returning here would drop the request: require_shaders_update blocks new ones
 		await tree_entered
 	require_shaders_update = false
+	compiling = true
 	var sources : Array[ShaderCode] = [null, null]
 	var new_is_greyscale = true
 	for i in 2:
@@ -144,6 +147,7 @@ func do_update_shaders() -> void:
 		notify_output_change(0)
 		notify_output_change(1)
 	set_current_iteration(0)
+	compiling = false
 
 func set_parameter(n : String, v) -> void:
 	if is_inside_tree():
